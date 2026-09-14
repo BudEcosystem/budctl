@@ -1,0 +1,40 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>budctl — install</title>
+<style>
+  :root { color-scheme: light dark; --fg:#111; --bg:#fff; --mut:#666; --pre:#f4f4f5; --br:#e4e4e7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e8e8ea; --bg:#0d0d0f; --mut:#9a9aa2; --pre:#18181b; --br:#27272a; }
+  }
+  body { margin:0 auto; padding:3rem 1.25rem; max-width:44rem; background:var(--bg); color:var(--fg);
+         font:16px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  h1 { font-size:1.6rem; margin:0 0 .25rem; }
+  p.sub { color:var(--mut); margin:0 0 2rem; }
+  pre { background:var(--pre); border:1px solid var(--br); border-radius:8px; padding:1rem;
+        overflow-x:auto; font-size:.9rem; }
+  a { color:inherit; }
+  footer { margin-top:2.5rem; color:var(--mut); font-size:.9rem; }
+</style>
+<h1>budctl</h1>
+<p class="sub">Is this cluster fit to host Bud? Answer before you install anything.</p>
+
+<pre><code>curl -fsSL https://get.budecosystem.com/install.sh | sh</code></pre>
+
+<p>The script verifies the published SHA-256 before it decompresses or runs anything.
+It installs to <code>/usr/local/bin</code>, or <code>~/.local/bin</code> when that is not
+writable. Set <code>BUDCTL_INSTALL_DIR</code> to choose, <code>BUDCTL_VERSION</code> to pin,
+or <code>BUDCTL_BASE_URL</code> to install from an internal mirror.</p>
+
+<p>Prefer not to pipe a script into a shell? Take the binary for your platform from
+<a href="https://github.com/BudEcosystem/budctl/releases">Releases</a>, check it against
+<code>SHA256SUMS</code>, and <code>gunzip</code> it. The tool needs no installer to work.</p>
+
+<p>budctl carries client-go, Helm, SOPS and age as libraries, so no <code>kubectl</code>,
+<code>helm</code>, <code>sops</code> or <code>age</code> binary has to be present. All it needs
+is a kubeconfig with a reachable API server.</p>
+
+<footer>
+  Source, licence and third-party notices:
+  <a href="https://github.com/BudEcosystem/budctl">github.com/BudEcosystem/budctl</a>
+</footer>
