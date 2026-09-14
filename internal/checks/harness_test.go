@@ -368,7 +368,6 @@ var probeOnly = map[string]string{
 	"charts.runtime":                "needs real chart repositories",
 	"charts.aibrix":                 "needs GitHub release assets",
 	"storage.provision":             "provisions a real PVC",
-	"storage.csi-healthy":           "needs real CSI driver pods",
 	"gpu.operator-functional":       "schedules a pod requesting a real GPU",
 	"toolchain.clock":               "needs a real reference clock",
 	"toolchain.exec-plugin":         "needs a kubeconfig with an exec stanza on disk",

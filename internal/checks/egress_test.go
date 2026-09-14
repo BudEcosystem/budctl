@@ -39,6 +39,8 @@ const (
 	egressTestDaprCharts  = "https://dapr.github.io/helm-charts/index.yaml"
 	egressTestHFAPI       = "https://huggingface.co/api/models/gpt2"
 	egressTestKyverno     = "https://reg.kyverno.io/v2/"
+	egressTestAltinity    = "https://docs.altinity.com/clickhouse-operator/index.yaml"
+	egressTestACME        = "https://acme-v02.api.letsencrypt.org/directory"
 	egressTestSSH         = "github.com:22"
 )
 
@@ -200,7 +202,7 @@ func egressAssertNoVerdictEffect(t *testing.T, r engine.Result) {
 // three checks into permanent skips, and every fixture below into a tautology.
 func TestEgressCatalogueFillsEveryBucket(t *testing.T) {
 	p := egressTestProfile(t)
-	for _, when := range []string{"install", "runtime", "optional"} {
+	for _, when := range []string{"install", "runtime", "optional", "acme"} {
 		if len(egressTargetsWhen(p.Egress, when)) == 0 {
 			t.Fatalf("the embedded catalogue lists no %q endpoints, so egress.%s can only ever SKIP", when, when)
 		}
@@ -338,7 +340,7 @@ func TestEgressInstallFollowsPodWhenWorkstationDisagrees(t *testing.T) {
 // the brief is to expose implementation problems, not to edit egress.go).
 //
 // Under --egress-from both, a node that could not pull the probe image produces
-// egress.install PASS — "all 15 install-time endpoints answered from this
+// egress.install PASS — "all 7 install-time endpoints answered from this
 // workstation" — because the ImagePull branch is guarded by (ws == nil ||
 // !ws.Ran) and the workstation sweep then carries the verdict. The identical
 // cluster is a BLOCK under the default --egress-from cluster. That is the exact
@@ -373,7 +375,7 @@ func TestEgressInstallGoesGreenOnAnUnpullableProbeImageUnderBothVantages(t *test
 // checks before the body runs; the body must reach the same verdict on its own,
 // because "we did not look" is not "we looked and it was fine".
 func TestEgressSkipsWithReasonWhenThereIsNoProbeRunner(t *testing.T) {
-	for _, id := range []string{"egress.install", "egress.runtime", "egress.optional", "egress.ssh"} {
+	for _, id := range []string{"egress.install", "egress.runtime", "egress.optional", "egress.acme", "egress.ssh"} {
 		t.Run(id, func(t *testing.T) {
 			f := egressCluster().withOpts(func(o *engine.Options) { o.NoProbe = true })
 			r := egressRun(t, f, id)
@@ -430,6 +432,68 @@ func TestEgressOptionalReportsUnreachableAddonWithoutMovingTheVerdict(t *testing
 
 func TestEgressOptionalPassesWhenAddonEndpointsAnswer(t *testing.T) {
 	assertStatus(t, egressRun(t, egressCluster(), "egress.optional",
+		egressSeedCluster(egressTestVantage(t, egressVantageCluster, nil))), "PASS")
+}
+
+// ---------------------------------------------------------------------------
+// egress.acme
+// ---------------------------------------------------------------------------
+
+// The shape of a real cluster Bud synced onto: Let's Encrypt reset the
+// connection and the upstream ClickHouse chart repo was blocked. Neither is
+// fetched by the sync, so the install set passes; the directory is egress.acme's
+// to report and the Altinity repo only egress.optional's.
+func TestEgressInstallPassesWhenOnlyACMEAndBundledChartReposAreBlocked(t *testing.T) {
+	v := egressTestVantage(t, egressVantageCluster, map[string]string{
+		egressTestACME:     "000",
+		egressTestAltinity: "000",
+	})
+	assertStatus(t, egressRun(t, egressCluster(), "egress.install", egressSeedCluster(v)), "PASS")
+
+	opt := egressRun(t, egressCluster(), "egress.optional", egressSeedCluster(v))
+	assertStatus(t, opt, "INFO")
+	egressAssertNoVerdictEffect(t, opt)
+	egressAssertDetail(t, opt, "bundled in the published OCI chart")
+}
+
+// Under an ACME answer an unreachable directory blocks: no certificate is ever
+// issued. The summary has to say that, and not that the sync stops at a chart.
+func TestEgressACMEBlocksWhenTheDirectoryIsUnreachableUnderAnACMEAnswer(t *testing.T) {
+	for _, method := range []intake.TLSMethod{intake.TLSACMEHTTP01, intake.TLSACMEDNS01} {
+		t.Run(string(method), func(t *testing.T) {
+			f := egressCluster().withAnswers(func(a *intake.Answers) { a.TLS = method })
+			v := egressTestVantage(t, egressVantageCluster, map[string]string{egressTestACME: "000"})
+			r := egressRun(t, f, "egress.acme", egressSeedCluster(v))
+
+			assertStatus(t, r, "BLOCK")
+			egressAssertContains(t, "summary", r.Summary, "Let's Encrypt ACME")
+			egressAssertContains(t, "summary", r.Summary, "no certificate is issued")
+			if strings.Contains(r.Summary, "image or chart") {
+				t.Fatalf("an ACME directory is neither an image nor a chart: %s", r.Summary)
+			}
+			egressAssertContains(t, "remedy", r.Remedy, "acme-v02.api.letsencrypt.org")
+			egressAssertContains(t, "remedy", r.Remedy, "'provided'")
+		})
+	}
+}
+
+// A provided certificate or plain HTTP never calls the directory, so the same
+// blocked host is not this install's problem: a skip that says why.
+func TestEgressACMESkipsWhenTLSIsNotObtainedThroughACME(t *testing.T) {
+	for _, method := range []intake.TLSMethod{intake.TLSProvided, intake.TLSNone} {
+		t.Run(string(method), func(t *testing.T) {
+			f := egressCluster().withAnswers(func(a *intake.Answers) { a.TLS = method })
+			v := egressTestVantage(t, egressVantageCluster, map[string]string{egressTestACME: "000"})
+			r := egressRun(t, f, "egress.acme", egressSeedCluster(v))
+
+			assertSkipHasReason(t, r)
+			egressAssertContains(t, "skip reason", r.Summary, "never calls an ACME directory")
+		})
+	}
+}
+
+func TestEgressACMEPassesWhenTheDirectoryAnswers(t *testing.T) {
+	assertStatus(t, egressRun(t, egressCluster(), "egress.acme",
 		egressSeedCluster(egressTestVantage(t, egressVantageCluster, nil))), "PASS")
 }
 
@@ -605,6 +669,27 @@ func TestEgressProxyReportsNodeEnvironmentHintsOnVanilla(t *testing.T) {
 	assertStatus(t, r, "INFO")
 	egressAssertContains(t, "summary", r.Summary, "proxy environment variables found on kube-system workloads")
 	egressAssertDetail(t, r, "pod/kube-proxy-abcde: HTTPS_PROXY=http://proxy.corp.example.com:3128")
+}
+
+// k3s's helm controller sets NO_PROXY on every helm-install pod, proxy or not.
+// Reading that alone as a hint explained a direct-connection cluster's egress
+// failures as a proxy's.
+func TestEgressProxyIgnoresNoProxyWithoutAProxyBesideIt(t *testing.T) {
+	egressClearProxyEnv(t)
+	f := egressCluster().with("pods", "kube-system", adapters.Object{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]any{"name": "helm-install-traefik-tqqgj", "namespace": "kube-system"},
+		"spec": map[string]any{"containers": []any{map[string]any{
+			"name": "helm", "image": "rancher/klipper-helm:v0.13.3",
+			"env": []any{map[string]any{"name": "NO_PROXY", "value": ".svc,.cluster.local,10.42.0.0/16,10.43.0.0/16"}},
+		}}},
+		"status": map[string]any{"phase": "Running"},
+	})
+
+	r := run(t, f, "egress.proxy")
+
+	assertStatus(t, r, "INFO")
+	egressAssertContains(t, "summary", r.Summary, "no egress proxy detected")
 }
 
 // §5.9's promise that "every egress result records it": with a cluster-wide

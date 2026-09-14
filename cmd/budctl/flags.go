@@ -141,7 +141,7 @@ func parseFlags(argv []string) (config, error) {
 	fs.BoolVar(&c.keepProbes, "keep", false, "keep the probe namespace for debugging")
 	fs.StringVar(&c.probeNamespace, "probe-namespace", "", "namespace for probe objects")
 	fs.StringVar(&c.probeImage, "probe-image", "curlimages/curl:8.10.1", "image for network probes")
-	fs.StringVar(&c.gpuProbeImage, "gpu-probe-image", "busybox:1.36", "image for the GPU probe (deliberately not a CUDA image)")
+	fs.StringVar(&c.gpuProbeImage, "gpu-probe-image", "debian:trixie-slim", "image for the GPU probe (a slim glibc image, deliberately not a CUDA image)")
 	fs.StringVar(&c.egressFrom, "egress-from", "cluster", "where egress is tested: cluster | workstation | both")
 	fs.BoolVar(&c.hfThroughput, "hf-throughput", false, "sample Hugging Face download throughput")
 	fs.StringVar(&c.argocdNamespace, "argocd-namespace", "argocd", "namespace ArgoCD is (or will be) installed in")

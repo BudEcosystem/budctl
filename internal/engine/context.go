@@ -64,6 +64,9 @@ type Options struct {
 	ArgoCDNamespace string
 	ArgoCDEnabled   bool
 	RegistryCreds   map[string]adapters.Credential
+
+	// BudctlVersion is the build that ran, recorded in every report it writes.
+	BudctlVersion string
 }
 
 // Ctx is handed to every check. Anything a check discovers that a later check

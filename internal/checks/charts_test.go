@@ -326,14 +326,15 @@ func TestChartsClassicSkipsWhenTheInventoryNamesNoRepositories(t *testing.T) {
 	assertSkipHasReason(t, r)
 }
 
-// One repo down blocks the install, and the finding has to name the chart that
-// needs it: "bitnami unreachable" and "the common library subchart is absent"
-// are not the same problem to the person holding the ticket.
+// A repo an ApplicationSet installs from directly blocks the install when it is
+// down, and the finding has to name what stops working: "dapr unreachable" and
+// "the Dapr control plane cannot be installed" are not the same problem to the
+// person holding the ticket.
 func TestChartsClassicBlocksWhenAnInstallTimeRepoIsUnreachable(t *testing.T) {
 	r := chartsRun(t, vanilla(), "charts.classic",
-		chartsAllOK(chartsBlock("charts.bitnami.com")), nil)
+		chartsAllOK(chartsBlock("dapr.github.io")), nil)
 	assertStatus(t, r, "BLOCK")
-	chartsMentions(t, r, "bitnami charts", "common library subchart")
+	chartsMentions(t, r, "dapr charts", "Dapr control plane")
 }
 
 // index.yaml is a document, not a registry endpoint: the "401 proves the host is
@@ -355,25 +356,28 @@ func TestChartsClassicRisksWhenOnlyAnOptionalRepoIsUnreachable(t *testing.T) {
 	chartsMentions(t, r, "SigNoz charts")
 }
 
-// The same dead host is a blocker or a risk depending on whether the operator
-// asked for in-cluster data stores. Reporting a repo nobody will contact as a
-// blocker is how a report trains people to ignore it.
-func TestChartsClassicScopesDataStoreReposToTheIntakeAnswer(t *testing.T) {
+// The data-store operator charts are subcharts of the postgres, clickhouse and
+// mongodb charts, and ArgoCD installs those from registry.bud.studio as packaged
+// OCI charts with the subchart inside. A tcs-vmware cluster with
+// docs.altinity.com blocked synced ClickHouse anyway. So a dead upstream repo
+// is a risk for whoever builds the chart from source, never a blocker — and the
+// note still says why when the operator chose external data stores.
+func TestChartsClassicNeverBlocksOnAReposBundledIntoThePublishedCharts(t *testing.T) {
 	cases := []struct {
 		name          string
 		inClusterData bool
-		want          string
+		note          string
 	}{
-		{"in-cluster data stores: no CNPG operator means no database for any service", true, "BLOCK"},
-		{"external data stores: the CNPG operator is never installed", false, "RISK"},
+		{"in-cluster data stores: the operator subchart ships inside the OCI chart", true, "bundled in the published OCI chart"},
+		{"external data stores: the operator is never installed", false, "external data stores selected"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := vanilla().withAnswers(func(a *intake.Answers) { a.InClusterData = tc.inClusterData })
 			r := chartsRun(t, f, "charts.classic",
-				chartsAllOK(chartsBlock("cloudnative-pg.github.io")), nil)
-			assertStatus(t, r, tc.want)
-			chartsMentions(t, r, "CloudNativePG charts")
+				chartsAllOK(chartsBlock("cloudnative-pg.github.io"), chartsBlock("docs.altinity.com")), nil)
+			assertStatus(t, r, "RISK")
+			chartsMentions(t, r, "CloudNativePG charts", "Altinity ClickHouse charts", tc.note)
 		})
 	}
 }

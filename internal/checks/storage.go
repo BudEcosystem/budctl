@@ -203,6 +203,12 @@ func init() {
 					broken = append(broken, fmt.Sprintf("%s (%s): %s", sc.Name, prov, strings.Join(bad, "; ")))
 				case len(matched) == 0 && !drivers[prov] && !strings.HasPrefix(prov, "kubernetes.io/"):
 					orphaned = append(orphaned, fmt.Sprintf("%s (%s)", sc.Name, prov))
+				case !drivers[prov]:
+					// No CSIDriver object: an external provisioner such as
+					// local-path, which never registers on a CSINode. "0/2 nodes"
+					// would read as a driver missing from every node.
+					detail = append(detail, fmt.Sprintf("%s: %s — %d/%d %s Running; not a CSI driver, so there is no per-node registration to count",
+						sc.Name, prov, len(matched), len(matched), Plural(len(matched), "pod", "pods")))
 				default:
 					detail = append(detail, fmt.Sprintf("%s: %s — %d/%d %s Running, registered on %d/%d nodes",
 						sc.Name, prov, len(matched), len(matched), Plural(len(matched), "pod", "pods"),
@@ -238,7 +244,7 @@ func init() {
 			}
 			return ch.Pass(
 				fmt.Sprintf("the %s behind %s healthy",
-					Plural(len(detail), "CSI driver", "CSI drivers"), Plural(len(cands), "the candidate class is", "every candidate class is")),
+					Plural(len(detail), "provisioner", "provisioners"), Plural(len(cands), "the candidate class is", "every candidate class is")),
 				append(detail, "candidates: "+why)...).
 				WithEvidence(evidence...).
 				Bounds("that the driver provisions — a Running pod with a registered CSINode entry still fails on a full backend, a missing volume group or a bad secret; storage.provision is what binds a claim")
@@ -264,7 +270,18 @@ func init() {
 
 			fixed := []string{}
 			ok := []string{}
+			nodeLocal := []string{}
 			for _, sc := range growth {
+				// A node-local class carves each volume out of one node's
+				// filesystem. There is no resizer to call and local-path ignores
+				// the requested size outright, so allowVolumeExpansion neither
+				// helps nor limits: the ceiling is that node's free space, which
+				// storage.capacity measures. Asking for the flag here sends the
+				// operator to a patch that changes nothing.
+				if stIsNodeLocal(sc) {
+					nodeLocal = append(nodeLocal, fmt.Sprintf("%s (%s) backs %s", sc.Name, sc.Provisioner, strings.Join(Sorted(d.Growth[sc.Name]), ", ")))
+					continue
+				}
 				if sc.Expansion {
 					ok = append(ok, fmt.Sprintf("%s (%s)", sc.Name, sc.Provisioner))
 					continue
@@ -272,15 +289,28 @@ func init() {
 				fixed = append(fixed, fmt.Sprintf("%s (%s) backs %s", sc.Name, sc.Provisioner, strings.Join(Sorted(d.Growth[sc.Name]), ", ")))
 			}
 			ev := engine.Evidence{What: "kubectl get storageclass -o custom-columns=NAME:.metadata.name,EXPANSION:.allowVolumeExpansion", Output: stClassTable(classes)}
+			nodeLocalNote := func() []string {
+				if len(nodeLocal) == 0 {
+					return nil
+				}
+				return append([]string{"node-local, where allowVolumeExpansion does not apply — each volume is bounded by the disk of the one node it landed on, not by a size that can be resized (storage.capacity measures that disk):"}, nodeLocal...)
+			}
 
 			if len(fixed) > 0 {
 				return ch.Fail(
-					strings.Join(stClassNamesByExpansion(growth, false), ", ")+" has allowVolumeExpansion unset, so the model registry and the ClickHouse volume can only be grown by deleting the PVC and re-downloading every model",
+					strings.Join(stClassNamesByExpansion(stNotNodeLocal(growth), false), ", ")+" has allowVolumeExpansion unset, so the model registry and the ClickHouse volume can only be grown by deleting the PVC and re-downloading every model",
 					"set it before the volumes have data in them: kubectl patch storageclass <name> -p '{\"allowVolumeExpansion\":true}' — the field is mutable, but it only affects claims resized after the change",
-					append(fixed, "growth-prone volumes: "+why)...).
+					append(append(fixed, nodeLocalNote()...), "growth-prone volumes: "+why)...).
 					WithEvidence(ev)
 			}
-			return ch.Pass("allowVolumeExpansion is set on "+strings.Join(ok, ", "), "growth-prone volumes: "+why).
+			if len(ok) == 0 {
+				return ch.Pass(
+					"expansion does not apply: every class backing a growth-prone volume is node-local, where the node's disk — not a resizable volume — is the ceiling",
+					append(nodeLocalNote(), "growth-prone volumes: "+why)...).
+					WithEvidence(ev).
+					Bounds("that the volumes have room to grow — a node-local volume never moves to a roomier node, and it shares that node's filesystem with the image store; storage.capacity is what measures the free space")
+			}
+			return ch.Pass("allowVolumeExpansion is set on "+strings.Join(ok, ", "), append(nodeLocalNote(), "growth-prone volumes: "+why)...).
 				WithEvidence(ev).
 				Bounds("that expansion works — the driver must also advertise the EXPAND_VOLUME capability, and an offline-only driver still needs the pod restarted to finish a resize")
 		},
@@ -792,6 +822,16 @@ func stClassNames(classes []stClass) []string {
 	return out
 }
 
+func stNotNodeLocal(classes []stClass) []stClass {
+	out := []stClass{}
+	for _, sc := range classes {
+		if !stIsNodeLocal(sc) {
+			out = append(out, sc)
+		}
+	}
+	return out
+}
+
 func stClassNamesByExpansion(classes []stClass, expansion bool) []string {
 	out := []string{}
 	for _, sc := range classes {
@@ -1118,14 +1158,33 @@ var stGenericTokens = map[string]bool{
 	"provisioner": true, "dev": true, "local": true, "cloud": true,
 }
 
+// stDistinctiveTokens keeps the vendor's domain label as a last resort rather
+// than a peer of the driver's own name. "rancher" in rancher.io/local-path is
+// also in every image k3s ships — CoreDNS, Traefik, klipper-lb — so matching on
+// it reads any Pending system pod as a broken storage driver. The vendor label
+// is used only when nothing more specific is left, as in driver.longhorn.io or
+// openebs.io/local, where the vendor is the driver.
 func stDistinctiveTokens(provisioner string) []string {
-	out := []string{}
-	for _, part := range strings.FieldsFunc(provisioner, func(r rune) bool { return r == '.' || r == '/' }) {
-		if p := strings.ToLower(part); !stGenericTokens[p] && len(p) >= 3 {
-			out = append(out, p)
-		}
+	host, path, _ := strings.Cut(provisioner, "/")
+	labels := strings.Split(host, ".")
+	vendor := ""
+	if len(labels) >= 2 {
+		vendor = labels[len(labels)-2]
+		labels = append(labels[:len(labels)-2:len(labels)-2], labels[len(labels)-1])
 	}
-	return out
+	distinctive := func(parts []string) []string {
+		out := []string{}
+		for _, part := range parts {
+			if p := strings.ToLower(part); !stGenericTokens[p] && len(p) >= 3 {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	if out := distinctive(append(labels, strings.Split(path, "/")...)); len(out) > 0 {
+		return out
+	}
+	return distinctive([]string{vendor})
 }
 
 func stPodMentions(p adapters.Object, needle string) bool {

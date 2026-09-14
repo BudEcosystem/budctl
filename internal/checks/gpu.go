@@ -33,9 +33,19 @@ const (
 
 	// Deliberately NOT a CUDA image (FRD-020 D10). Requesting nvidia.com/gpu: 1
 	// makes the device plugin inject the device nodes whatever the image is, so
-	// asserting /dev/nvidiactl inside busybox proves allocation, injection and
-	// the runtime-hook chain for megabytes instead of gigabytes.
-	gpuDefaultProbeImage = "busybox:1.36"
+	// asserting /dev/nvidiactl inside a slim image proves allocation, injection
+	// and the runtime-hook chain for megabytes instead of gigabytes.
+	//
+	// Slim, but glibc with its compatibility libraries — not busybox. HAMi
+	// preloads its vGPU interceptor into every container that asks for a GPU,
+	// and that library needs libdl.so.2: busybox's shell then dies in the
+	// loader before it prints a line. budcluster's own GPU canary uses a Debian
+	// slim image for the same reason.
+	gpuDefaultProbeImage = "debian:trixie-slim"
+
+	// gpuLoaderError is what the dynamic loader prints when an injected library
+	// needs something the probe image does not ship.
+	gpuLoaderError = "error while loading shared libraries"
 )
 
 // gpuVendor is one accelerator family: what the kubelet advertises, what the
@@ -531,7 +541,7 @@ func init() {
 
 			case gpuImagePullFailure(outcome.Reason, outcome.Events):
 				// Not a GPU answer: the node could not fetch a few megabytes of
-				// busybox. registry.from-cluster and egress.install own that
+				// base image. registry.from-cluster and egress.install own that
 				// blocker; reporting it here as a GPU fault would send the
 				// operator to the wrong stack.
 				return ch.Skip(fmt.Sprintf(
@@ -556,7 +566,7 @@ func init() {
 			case strings.Contains(outcome.Logs, gpuDevicePresent):
 				return ch.Pass(fmt.Sprintf("a pod requesting %s: 1 scheduled, started, and found %s inside the container",
 					v.Resource, strings.Join(v.Devices, " or "))).
-					With(fmt.Sprintf("probe image %s — a busybox-class image, not CUDA: the device plugin injects the device nodes whatever the image is (FRD-020 D10)", image)).
+					With(fmt.Sprintf("probe image %s — a slim base image, not CUDA: the device plugin injects the device nodes whatever the image is (FRD-020 D10)", image)).
 					WithEvidence(ev...).
 					Bounds("the probe runs under the default scheduler with no runtimeClassName and no toleration, while budcluster renders model pods with runtimeClassName: nvidia and schedulerName: hami-scheduler; and it says nothing about whether a specific model fits in the GPU's memory or whether MIG partitioning matches the deployment profile — budsim answers those at deploy time")
 
@@ -572,6 +582,18 @@ func init() {
 						"device plugin once the kernel module is loaded. A plugin that hands out devices the driver never created is the classic symptom of a driver upgrade that did not reboot.").
 					With("stage: DRIVER / DEVICE PLUGIN — the container was created and the device was absent inside it").
 					With("the container listed /dev; the output is in the evidence below").
+					WithEvidence(ev...)
+
+			case strings.Contains(outcome.Logs, gpuLoaderError):
+				// Started, and the shell died in the dynamic loader before the
+				// script ran: a library the GPU stack injected (HAMi's vGPU
+				// interceptor, or the NVIDIA hook's driver libraries) needs one
+				// the probe image lacks. Allocation and container creation
+				// worked; the device assertion never ran, so it is unverified
+				// rather than failed — and the image is the thing to change.
+				return ch.Skip(fmt.Sprintf(
+					"the GPU probe started, but the probe image %s could not load a library the GPU stack injected into it (%s), so device injection is unverified; re-run with --gpu-probe-image set to a glibc image such as %s",
+					image, gpuFirstLine(outcome.Logs, gpuLoaderError), gpuDefaultProbeImage)).
 					WithEvidence(ev...)
 
 			default:
@@ -980,7 +1002,7 @@ func gpuOrNone(s, fallback string) string {
 	return s
 }
 
-// gpuImagePullFailure separates "the node could not fetch busybox" from "the
+// gpuImagePullFailure separates "the node could not fetch the image" from "the
 // runtime refused to create the container". Both leave the pod scheduled and
 // not started, and their remedies have nothing in common.
 func gpuImagePullFailure(reason string, events []string) bool {
@@ -991,4 +1013,14 @@ func gpuImagePullFailure(reason string, events []string) bool {
 		}
 	}
 	return false
+}
+
+// gpuFirstLine returns the first output line containing needle, trimmed.
+func gpuFirstLine(logs, needle string) string {
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, needle) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return needle
 }

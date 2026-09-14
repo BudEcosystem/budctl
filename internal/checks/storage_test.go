@@ -417,3 +417,131 @@ func TestStorageRWXPassesWhenTheChartAsksForNoRWX(t *testing.T) {
 		storagePVC("private", "openebs-lvm", "ReadWriteOnce"))
 	assertStatus(t, r, "PASS")
 }
+
+// ---------------------------------------------------------------------------
+// storage.csi-healthy
+// ---------------------------------------------------------------------------
+
+// storageDriverPod is a kube-system pod in one of the three states the check
+// distinguishes: Running, Pending (never scheduled), or crashlooping.
+func storageDriverPod(name, image, phase, waiting string) adapters.Object {
+	status := map[string]any{"phase": phase}
+	if waiting != "" {
+		status["containerStatuses"] = []any{map[string]any{
+			"name": "c", "ready": false,
+			"state": map[string]any{"waiting": map[string]any{"reason": waiting, "message": "seeded"}},
+		}}
+	}
+	return adapters.Object{
+		"apiVersion": "v1", "kind": "Pod",
+		"metadata": map[string]any{"name": name, "namespace": "kube-system"},
+		"spec":     map[string]any{"containers": []any{map[string]any{"name": "c", "image": image}}},
+		"status":   status,
+	}
+}
+
+// storageK3sSystemPods is a stock k3s kube-system: every image is rancher/*,
+// and the ServiceLB pod for a second LoadBalancer on port 80 sits Pending
+// because Traefik's already holds the host port.
+func storageK3sSystemPods(provisioner adapters.Object) []adapters.Object {
+	return []adapters.Object{
+		provisioner,
+		storageDriverPod("coredns-54996dc9b4-tm2p7", "rancher/mirrored-coredns-coredns:1.14.6", "Running", ""),
+		storageDriverPod("traefik-59b7647586-mhpb2", "rancher/mirrored-library-traefik:3.7.8", "Running", ""),
+		storageDriverPod("svclb-envoy-aibrix-eg-903790dc-jbl4w", "rancher/klipper-lb:v0.4.17", "Pending", ""),
+	}
+}
+
+// k3s ships local-path and a dozen rancher/* system images. The vendor label
+// "rancher" is not the driver's name, and matching on it reported a Pending
+// ServiceLB pod as a broken storage driver while every PVC was Bound.
+func TestStorageCSIHealthyIgnoresUnrelatedPodsFromTheProvisionersVendor(t *testing.T) {
+	f := vanilla().
+		with("storageclasses.storage.k8s.io", "", storageClass("local-path", "rancher.io/local-path", true, false, nil)).
+		with("pods", "", storageK3sSystemPods(
+			storageDriverPod("local-path-provisioner-58d557dc48-sl4f8", "rancher/local-path-provisioner:v0.0.36", "Running", ""))...)
+
+	r := run(t, f, "storage.csi-healthy")
+
+	assertStatus(t, r, "PASS")
+	if detail := strings.Join(r.Detail, "\n"); strings.Contains(detail, "registered on 0/") {
+		t.Fatalf("local-path is not a CSI driver and never registers on a node; a 0/N count reads as a missing driver:\n%s", detail)
+	}
+	for _, ev := range r.Evidence {
+		for _, unrelated := range []string{"svclb", "coredns", "traefik"} {
+			if strings.Contains(ev.Output, unrelated) {
+				t.Fatalf("%s was counted as a pod implementing rancher.io/local-path:\n%s", unrelated, ev.Output)
+			}
+		}
+	}
+}
+
+// The same cluster with the provisioner itself crashlooping is still a blocker:
+// narrowing the match must not stop it from finding the real driver pod.
+func TestStorageCSIHealthyBlocksWhenTheLocalPathProvisionerIsCrashlooping(t *testing.T) {
+	f := vanilla().
+		with("storageclasses.storage.k8s.io", "", storageClass("local-path", "rancher.io/local-path", true, false, nil)).
+		with("pods", "", storageK3sSystemPods(
+			storageDriverPod("local-path-provisioner-58d557dc48-sl4f8", "rancher/local-path-provisioner:v0.0.36", "Running", "CrashLoopBackOff"))...)
+
+	r := run(t, f, "storage.csi-healthy")
+
+	assertStatus(t, r, "BLOCK")
+	detail := strings.Join(r.Detail, "\n")
+	if !strings.Contains(detail, "local-path-provisioner") || strings.Contains(detail, "svclb") {
+		t.Fatalf("the blocker must name the provisioner pod and only it:\n%s", detail)
+	}
+}
+
+// Where the vendor IS the driver there is nothing more specific to match on,
+// and the vendor label has to keep working.
+func TestStorageDistinctiveTokensFallBackToTheVendorOnlyWhenNothingElseIsLeft(t *testing.T) {
+	for prov, want := range map[string]string{
+		"rancher.io/local-path":      "local-path",
+		"ebs.csi.aws.com":            "ebs",
+		"csi.vsphere.vmware.com":     "vsphere",
+		"nfs.csi.k8s.io":             "nfs",
+		"driver.longhorn.io":         "longhorn",
+		"local.csi.openebs.io":       "openebs",
+		"openebs.io/local":           "openebs",
+		"pd.csi.storage.gke.io":      "gke",
+		"com.nutanix.csi":            "nutanix",
+		"rook-ceph.rbd.csi.ceph.com": "rook-ceph rbd",
+	} {
+		if got := strings.Join(stDistinctiveTokens(prov), " "); got != want {
+			t.Errorf("stDistinctiveTokens(%q) = %q, want %q", prov, got, want)
+		}
+	}
+}
+
+// local-path ignores the requested size and has no resizer, so a RISK asking
+// for allowVolumeExpansion sent the operator to a patch that changes nothing,
+// and "grow by deleting the PVC" described a limit the volume does not have.
+func TestStorageExpansionDoesNotAskANodeLocalClassToExpand(t *testing.T) {
+	f := vanilla().with("storageclasses.storage.k8s.io", "",
+		storageClass("local-path", "rancher.io/local-path", true, false, nil))
+	r := run(t, f, "storage.expansion")
+
+	assertStatus(t, r, "PASS")
+	if !strings.Contains(r.Summary, "node-local") || strings.Contains(r.Remedy, "kubectl patch") {
+		t.Fatalf("a node-local class must be explained, not patched:\n  summary: %s\n  remedy: %s", r.Summary, r.Remedy)
+	}
+	if !strings.Contains(r.DoesNotProve, "storage.capacity") {
+		t.Fatalf("the pass must point at the check that measures the real ceiling: %q", r.DoesNotProve)
+	}
+}
+
+// A node-local class beside a network class does not excuse the network one:
+// the RISK still names the class that cannot grow, and only that class.
+func TestStorageExpansionStillRisksOnANonLocalClassBesideANodeLocalOne(t *testing.T) {
+	f := vanilla().with("storageclasses.storage.k8s.io", "",
+		storageClass("local-path", "rancher.io/local-path", true, false, nil),
+		storageClass("fixed", "ebs.csi.aws.com", false, false, nil))
+	r := storageRunRendered(t, f, "storage.expansion",
+		storagePVC("bud-models-registry", "fixed", "ReadWriteOnce"))
+
+	assertStatus(t, r, "RISK")
+	if !strings.HasPrefix(r.Summary, "fixed has allowVolumeExpansion unset") {
+		t.Fatalf("the RISK must name only the class that can be resized: %s", r.Summary)
+	}
+}

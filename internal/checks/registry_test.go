@@ -654,7 +654,6 @@ func registryEgressLogs(codes map[string]string, order ...string) string {
 var registryRequiredHosts = []string{
 	"registry.bud.studio", "docker.io", "quay.io", "ghcr.io",
 	"registry.k8s.io", "ecr-public.aws.com", "reg.kyverno.io",
-	"budimages.azurecr.io",
 }
 
 func registryAllReached(code string) map[string]string {

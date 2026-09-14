@@ -253,11 +253,11 @@ func init() {
 			switch {
 			case len(blockers) > 0:
 				return ch.Fail(
-					fmt.Sprintf("%d chart %s in scope %s serve index.yaml, so the dependencies pinned against %s never resolve and those charts do not install",
+					fmt.Sprintf("%d chart %s an ApplicationSet installs from directly %s serve index.yaml, so the charts sourced from %s do not install",
 						len(blockers), Plural(len(blockers), "repository", "repositories"),
 						Plural(len(blockers), "does not", "do not"),
 						Plural(len(blockers), "it", "them")),
-					"allowlist these hosts on :443 from whatever runs the dependency resolve — this workstation for a direct `helm install`, the ArgoCD repo-server for a synced install — or mirror each repo and repoint the chart dependencies",
+					"allowlist these hosts on :443 from whatever fetches the chart — the ArgoCD repo-server for a synced install, this workstation for a direct `helm install` — or mirror each repo and repoint the Application's repoURL",
 					append(Sorted(blockers), Sorted(risks)...)...,
 				).WithEvidence(evidence...)
 			case len(risks) > 0:
@@ -435,7 +435,7 @@ func chartsClassicSeverity(c *engine.Ctx, t intake.EgressTarget) (engine.Severit
 	if t.When == "install" {
 		return engine.Block, ""
 	}
-	return engine.Risk, "optional: needed only if the feature behind it is enabled"
+	return engine.Risk, "optional: not fetched by the default install"
 }
 
 func chartsIsDataStoreRepo(u string) bool {
