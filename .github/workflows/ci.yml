@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        # The suite carries a failure-coverage gate: a check with no test that
+        # drives it to BLOCK or RISK fails the run. A check that cannot fail
+        # turns an unknown into a false assurance, which is the one thing a
+        # readiness tool must never do.
+        run: go test ./...
+
+      - name: Cross-compile every published platform
+        run: |
+          for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            echo "::group::$p"
+            GOOS="${p%/*}" GOARCH="${p#*/}" CGO_ENABLED=0 go build -o /dev/null ./cmd/budctl
+            echo "::endgroup::"
+          done
+
+      - name: Check the installer parses
+        run: sh -n install.sh

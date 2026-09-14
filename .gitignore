@@ -30,3 +30,7 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Release artifacts; each binary is ~85MB and must never be committed.
+/dist/
+/budctl

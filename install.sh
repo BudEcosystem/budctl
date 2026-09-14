@@ -1,10 +1,6 @@
 #!/bin/sh
 # Install budctl — the cluster readiness checker for the Bud platform.
 #
-# Source of truth is tools/budctl/install.sh in the Bud monorepo; the copy in
-# the public repo is published from there by the release workflow, VERSION
-# stamped in. Edit it there, not here.
-#
 #   curl -fsSL https://raw.githubusercontent.com/BudEcosystem/budctl/main/install.sh | sh
 #
 # Environment:
@@ -16,7 +12,8 @@
 # short by a dropped connection defines functions and does nothing else.
 set -eu
 
-# Stamped by the release workflow. Pinned rather than resolved from the GitHub
+# Bumped by hand in the commit that gets tagged; the release workflow refuses a
+# tag that disagrees with it. Pinned rather than resolved from the GitHub
 # API at runtime: the unauthenticated API allows 60 requests per hour per IP,
 # which one NATed customer site can exhaust between two engineers.
 VERSION="${BUDCTL_VERSION:-0.3.0}"

@@ -1,0 +1,171 @@
+name: Release
+
+# Cutting a release is three steps, and the first is deliberately manual:
+#
+#   1. bump VERSION in install.sh to the version you are about to cut
+#   2. commit that
+#   3. tag it v0.3.1 and push the tag
+#
+# The installer pins its version rather than resolving "latest" from the GitHub
+# API at run time, because that API allows 60 requests an hour per IP and one
+# NATed customer site can exhaust it between two engineers. Pinning by hand in
+# the commit being tagged keeps the pin reviewable, and this workflow refuses a
+# tag that disagrees with it — so the published installer can never point at a
+# release that is not the one it shipped with.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the v (e.g. 0.3.1)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and verify everything, but publish nothing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Resolve the version
+        id: v
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-${REF_NAME#v}}"
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::'$version' is not a version. Tag as vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          pinned="$(sed -n 's|^VERSION="${BUDCTL_VERSION:-\(.*\)}"$|\1|p' install.sh)"
+          if [ "$pinned" != "$version" ]; then
+            echo "::error::install.sh pins $pinned but this release is $version. Bump VERSION in install.sh, commit, then tag." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing budctl $version"
+
+      - name: Test
+        # A binary whose tests fail must never reach a customer's cluster.
+        run: go test ./...
+
+      - name: Regenerate the third-party notices
+        # The binary statically links 240-odd modules under Apache-2.0, MIT, BSD
+        # and MPL. Their notices have to travel with it, so this is a licence
+        # obligation and a failure here fails the release.
+        run: |
+          go install github.com/google/go-licenses@v1.6.0
+          PATH="$PATH:$(go env GOPATH)/bin" ./third-party.sh
+          grep -q 'Apache License' THIRD_PARTY.md || { echo "::error::THIRD_PARTY.md carries no licence texts" >&2; exit 1; }
+
+      - name: Build the release matrix
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: ./release.sh
+
+      - name: Verify the artifacts
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          # Publish the compressed binaries only, and recompute the checksum file
+          # so it describes exactly what ships, with no entries for absent files.
+          sha256sum budctl-*.gz > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          # The runner is linux/amd64, so one artifact can actually be executed
+          # rather than merely linked. A binary that cannot start is not a release.
+          gunzip -c budctl-linux-amd64.gz > /tmp/budctl && chmod +x /tmp/budctl
+          out="$(/tmp/budctl version)"
+          echo "$out"
+          printf '%s' "$out" | grep -qF "budctl $VERSION " || {
+            echo "::error::the built binary reports '$out', not version $VERSION" >&2; exit 1; }
+
+      - name: Publish the release
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh"
+            echo '```'
+            echo
+            echo "Or take the binary for your platform below, check it against \`SHA256SUMS\`, and \`gunzip\` it."
+            echo "Air-gapped sites can mirror the artifacts internally and set \`BUDCTL_BASE_URL\`."
+            echo
+            echo "budctl needs only a kubeconfig with a reachable API server. It carries client-go, Helm,"
+            echo "SOPS and age as libraries, so no kubectl, helm, sops or age binary has to be installed."
+            echo
+            echo "## Checksums"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } > /tmp/notes.md
+          gh release create "v${VERSION}" \
+            dist/budctl-linux-amd64.gz dist/budctl-linux-arm64.gz \
+            dist/budctl-darwin-amd64.gz dist/budctl-darwin-arm64.gz \
+            dist/SHA256SUMS THIRD_PARTY.md \
+            --title "budctl ${VERSION}" --notes-file /tmp/notes.md
+
+      - name: Refresh the committed notices
+        # Keeps the browsable copy honest without gating the release on it: the
+        # generator's output shifts by a few bytes between toolchain versions,
+        # and a licence file is not worth a flaky release.
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main --depth 1
+          git checkout -B main origin/main
+          cp THIRD_PARTY.md /tmp/notices.md 2>/dev/null || true
+          git checkout -- . 2>/dev/null || true
+          cp /tmp/notices.md THIRD_PARTY.md
+          if git diff --quiet -- THIRD_PARTY.md; then
+            echo "notices unchanged"
+          else
+            git add THIRD_PARTY.md
+            git commit -m "chore: refresh third-party notices for ${VERSION}"
+            git push origin main
+          fi
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          echo "### budctl ${VERSION} — dry run, nothing published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat dist/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

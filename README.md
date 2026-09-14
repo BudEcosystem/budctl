@@ -217,9 +217,21 @@ counted separately, listed separately, and every one carries a reason.
 ## Build and share
 
 ```bash
-cd tools/budctl
+cd budctl
 VERSION=0.2.0 ./release.sh
 ```
+
+To cut a release, bump `VERSION` in `install.sh` to the version you are about to
+publish, commit it, and push the matching tag:
+
+```bash
+git tag v0.3.1 && git push origin v0.3.1
+```
+
+CI refuses a tag that disagrees with the pin, so the published installer can
+never point at a release other than the one it shipped with. It then runs the
+suite, regenerates `THIRD_PARTY.md`, builds all four platforms, checks that the
+linux binary actually starts and reports its own version, and publishes.
 
 Produces one static binary per platform in `dist/`, each with a `.gz` and a
 `SHA256SUMS`. Measured at 0.2.0:
