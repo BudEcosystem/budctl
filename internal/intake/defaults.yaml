@@ -1,7 +1,7 @@
 # Floors and inventories budctl embeds at build time (FRD-020 §7, §9.3).
 # These are the values an operator cannot reasonably be asked for. Capacity
 # requirements do NOT live here — they derive from the intake answers.
-catalogVersion: "2026-09-13"
+catalogVersion: "2026-09-15"
 
 # 80 GiB, not 60. The 14 first-party images at 1.2.8 measure 19.8 GiB compressed
 # from registry manifests, inferring to ~40 GiB extracted; novu x4, otel,
@@ -75,6 +75,10 @@ appsetComponents:
 # Verified by fetching the upstream charts and cross-checking against the images
 # running in a live cluster. Four of these appear NOWHERE in the bud-runtime
 # repository: they are upstream chart defaults that Bud installs unmodified.
+#
+# budimages.azurecr.io is retired and deliberately absent. Leftover references
+# still name it — budcluster's NODE_INFO_* image env in the bud chart, which no
+# code reads — but nothing an install or a deployment runs pulls from it.
 registries:
   - host: registry.bud.studio
     pulledBy: every first-party image, and the OCI charts
@@ -98,10 +102,6 @@ registries:
     pulledBy: Kyverno, all five images, via the chart's defaultRegistry
     requirement: required
     feature: kyverno
-  - host: budimages.azurecr.io
-    pulledBy: vLLM runtime and node-info-collector images, at model-deploy time
-    requirement: conditional
-    feature: model-serving
   - host: nvcr.io
     pulledBy: NVIDIA GPU operator and dcgm-exporter
     requirement: conditional
@@ -150,42 +150,50 @@ egress:
     label: Kyverno registry
     when: optional
     consequence: the Kyverno addon cannot pull its five images
+  # prometheus-community, bitnami, CloudNativePG, Altinity, Percona and SeaweedFS
+  # are dependencies of wrapper charts, not install sources. Every ApplicationSet
+  # in infra/appsets installs those charts from oci://registry.bud.studio/charts,
+  # and ArgoCD pulls the packaged chart with its charts/ directory already inside
+  # — the repo-server never resolves them. A cluster that cannot reach
+  # docs.altinity.com syncs ClickHouse regardless. They matter only to whoever
+  # builds a chart from source, so they are optional; dapr, which an
+  # ApplicationSet sources directly, stays install.
   - url: https://prometheus-community.github.io/helm-charts/index.yaml
     label: prometheus-community charts
-    when: install
-    consequence: the umbrella chart's prometheus and prometheus-adapter dependencies
+    when: optional
+    consequence: the prometheus and prometheus-adapter subcharts of the bud chart, bundled in the published OCI chart; fetched only when that chart is built from source
   - url: https://charts.bitnami.com/bitnami/index.yaml
     label: bitnami charts
-    when: install
-    consequence: the common library subchart
+    when: optional
+    consequence: the common library subchart of the bud chart, bundled in the published OCI chart; fetched only when that chart is built from source
   - url: https://dapr.github.io/helm-charts/index.yaml
     label: dapr charts
     when: install
     consequence: the Dapr control plane cannot be installed
   - url: https://cloudnative-pg.github.io/charts/index.yaml
     label: CloudNativePG charts
-    when: install
-    consequence: no PostgreSQL operator, so every service's database is absent
+    when: optional
+    consequence: the CloudNativePG operator subchart of the postgres chart, bundled in the published OCI chart; fetched only when that chart is built from source
   - url: https://docs.altinity.com/clickhouse-operator/index.yaml
     label: Altinity ClickHouse charts
-    when: install
-    consequence: no ClickHouse operator, so budmetrics and gateway analytics have nowhere to write
+    when: optional
+    consequence: the ClickHouse operator subchart of the clickhouse chart, bundled in the published OCI chart; fetched only when that chart is built from source
   - url: https://percona.github.io/percona-helm-charts/index.yaml
     label: Percona charts
-    when: install
-    consequence: no MongoDB operator, so Novu will not start
+    when: optional
+    consequence: the MongoDB operator subchart of the mongodb chart, bundled in the published OCI chart; fetched only when that chart is built from source
   - url: https://seaweedfs.github.io/seaweedfs-operator/index.yaml
     label: SeaweedFS charts
-    when: install
-    consequence: no S3 object store for the model registry
+    when: optional
+    consequence: the SeaweedFS operator subchart of the seaweedfs chart, bundled in the published OCI chart; fetched only when that chart is built from source
   - url: https://openebs.github.io/openebs/index.yaml
     label: OpenEBS charts
     when: optional
     consequence: only if OpenEBS is the chosen storage provisioner
   - url: https://open-telemetry.github.io/opentelemetry-helm-charts/index.yaml
     label: OpenTelemetry charts
-    when: install
-    consequence: no OTel operator, so trace collection is absent
+    when: optional
+    consequence: the OpenTelemetry operator subchart of the otel chart, which no ApplicationSet installs; fetched only when that chart is built from source
   - url: https://argoproj.github.io/argo-helm/index.yaml
     label: Argo charts
     when: optional
@@ -230,10 +238,12 @@ egress:
     label: PyPI
     when: optional
     consequence: sandboxed code execution and eval harnesses that install packages at runtime
+  # Its own bucket, not install: the sync completes without it, and only an
+  # ACME TLS answer puts the directory on the path (egress.acme).
   - url: https://acme-v02.api.letsencrypt.org/directory
     label: Let's Encrypt ACME
-    when: install
-    consequence: certificate issuance for every ingress host; without it TLS stays self-signed
+    when: acme
+    consequence: cert-manager cannot register an ACME account, so no certificate is issued and every hostname serves an untrusted one
 
 egressTcp:
   - host: github.com

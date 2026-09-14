@@ -729,6 +729,27 @@ func TestArgoCDVersionSkipsWhenNotInstalled(t *testing.T) {
 // argocd.chart-repo-credential
 // ---------------------------------------------------------------------------
 
+// argocdTestRegistry scripts registry.bud.studio's token flow. anonymous decides
+// whether the token issued to a client with no credential can read the charts
+// project — the one registry setting that decides whether ArgoCD needs a
+// repository Secret at all.
+func argocdTestRegistry(anonymous bool) func(*http.Request) (*http.Response, error) {
+	return func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/service/token"):
+			resp := argocdReply(http.StatusOK)
+			resp.Body = io.NopCloser(strings.NewReader(`{"token":"anon"}`))
+			return resp, nil
+		case anonymous && strings.Contains(r.URL.Path, "/manifests/") && r.Header.Get("Authorization") == "Bearer anon":
+			return argocdReply(http.StatusOK), nil
+		default:
+			resp := argocdReply(http.StatusUnauthorized)
+			resp.Header.Set("WWW-Authenticate", `Bearer realm="https://registry.bud.studio/service/token",service="harbor-registry"`)
+			return resp, nil
+		}
+	}
+}
+
 func TestArgoCDChartRepoCredentialRiskWhenNoSecretCoversTheRegistry(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -760,10 +781,27 @@ func TestArgoCDChartRepoCredentialRiskWhenNoSecretCoversTheRegistry(t *testing.T
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := argocdTestInstall(argocdTestCluster()).with("secrets", "argocd", tc.secrets...)
-			r := run(t, f, "argocd.chart-repo-credential")
+			r := argocdRunHTTP(t, f, "argocd.chart-repo-credential", argocdTestRegistry(false))
 			assertStatus(t, r, "RISK")
-			argocdAssertMentions(t, r, tc.claims...)
+			argocdAssertMentions(t, r, append(tc.claims, "refuses an anonymous pull")...)
 		})
+	}
+}
+
+// A charts project the registry serves to anonymous clients needs no Secret:
+// ArgoCD pulls anonymously when none matches. The tcs-vmware cluster synced
+// every chart that way while this check predicted a 401 on the first pull.
+func TestArgoCDChartRepoCredentialPassesWhenTheChartsProjectAllowsAnonymousPulls(t *testing.T) {
+	f := argocdTestInstall(argocdTestCluster()).with("secrets", "argocd",
+		argocdTestSecret("argocd", "bud-config-repo", "repository", map[string]string{
+			"type": "git", "url": "https://github.com/bud/config.git",
+		}))
+	r := argocdRunHTTP(t, f, "argocd.chart-repo-credential", argocdTestRegistry(true))
+
+	assertStatus(t, r, "PASS")
+	argocdAssertMentions(t, r, "anonymous pull", "none is needed")
+	if !strings.Contains(r.DoesNotProve, "made private") {
+		t.Fatalf("a pass that rests on a registry setting must say the setting can change: %q", r.DoesNotProve)
 	}
 }
 

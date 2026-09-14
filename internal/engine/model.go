@@ -135,6 +135,20 @@ type Report struct {
 	Meta     map[string]string `json:"meta,omitempty"`
 }
 
+// Stamp records what a report was checked against. Every surface that writes a
+// report calls it once the run has finished: the platform and server version
+// are only known after the platform checks have run, and a report saved from
+// the interactive view without them reads as a run against no cluster at all.
+func (r *Report) Stamp(c *Ctx) {
+	r.Platform = string(c.Platform.Distribution)
+	r.Meta = map[string]string{
+		"budctlVersion":  c.Opts.BudctlVersion,
+		"catalogVersion": c.Profile.CatalogVersion,
+		"serverVersion":  c.Platform.Version,
+		"domain":         c.Answers.Domain,
+	}
+}
+
 func Summarize(results []Result) Report {
 	rep := Report{Counts: map[string]int{}, Results: results, Verdict: Ready}
 	for _, r := range results {

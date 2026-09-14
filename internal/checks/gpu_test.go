@@ -732,7 +732,7 @@ func TestGPUOperatorFunctionalPassesWhenDeviceIsPresentInContainer(t *testing.T)
 
 // FRD-020 D10: the probe must cost megabytes, not gigabytes. The recorded
 // evidence is where a regression to a CUDA image would show up.
-func TestGPUOperatorFunctionalProbesWithBusyboxNotCUDA(t *testing.T) {
+func TestGPUOperatorFunctionalProbesWithASlimImageNotCUDA(t *testing.T) {
 	f := vanilla().with("nodes", "", node("gpu-1", withGPU("4")))
 	r := gpuTestRunWithProbes(t, f, 10*time.Second,
 		gpuTestPodReactor("gpu-1", gpuDevicePresent, gpuTestTerminated("Succeeded", "Completed", 0)))
@@ -740,8 +740,8 @@ func TestGPUOperatorFunctionalProbesWithBusyboxNotCUDA(t *testing.T) {
 	// Asserted on the recorded request itself, not on the prose: the detail line
 	// legitimately contains the word CUDA to explain why it is NOT used.
 	asked := strings.ToLower(r.Evidence[0].What)
-	if !strings.Contains(asked, "image busybox:1.36, requesting nvidia.com/gpu: 1") {
-		t.Fatalf("probe transcript does not show the busybox-class image: %q", r.Evidence[0].What)
+	if !strings.Contains(asked, "image "+gpuDefaultProbeImage+", requesting nvidia.com/gpu: 1") {
+		t.Fatalf("probe transcript does not show the default slim image: %q", r.Evidence[0].What)
 	}
 	if strings.Contains(asked, "cuda") || strings.Contains(asked, "nvcr.io") {
 		t.Fatalf("the default GPU probe pulled a CUDA-class image (FRD-020 D10): %q", r.Evidence[0].What)
@@ -759,14 +759,14 @@ func TestGPUOperatorFunctionalHonoursExplicitProbeImage(t *testing.T) {
 	gpuTestAssertMentions(t, r, "image nvcr.io/nvidia/cuda:12.4.1-base-ubi9")
 }
 
-// A node that cannot pull a few megabytes of busybox has told us nothing about
+// A node that cannot pull a few megabytes of base image has told us nothing about
 // its GPU. Reporting that as a GPU fault would send the operator to the wrong
 // stack entirely — it belongs to registry/egress.
 func TestGPUOperatorFunctionalSkipsAndRedirectsOnImagePullFailure(t *testing.T) {
 	f := vanilla().with("nodes", "", node("gpu-1", withGPU("4")))
 	r := gpuTestRunWithProbes(t, f, 10*time.Second,
 		gpuTestPodReactor("gpu-1", "", gpuTestWaiting("Failed", "ImagePullBackOff",
-			"Back-off pulling image busybox:1.36")))
+			"Back-off pulling image "+gpuDefaultProbeImage)))
 	assertSkipHasReason(t, r)
 	gpuTestAssertMentions(t, r, "registry.from-cluster", "egress.install", "was not exercised")
 	gpuTestAssertSilentOn(t, r, "stage:")
@@ -783,6 +783,23 @@ func TestGPUOperatorFunctionalSkipsWhenProbePodCannotBeCreated(t *testing.T) {
 	})
 	assertSkipHasReason(t, r)
 	gpuTestAssertMentions(t, r, "could not be created", "was not exercised")
+}
+
+// The tcs-vmware GPU node: HAMi scheduled the probe, the container started, and
+// busybox's shell died loading HAMi's preloaded vGPU library. That is the image
+// failing, not the GPU — a skip that names the loader error and the flag, never
+// a device fault and never the generic "unreadable output".
+func TestGPUOperatorFunctionalSkipsAndNamesTheImageWhenTheLoaderFails(t *testing.T) {
+	f := vanilla().
+		with("nodes", "", node("gpu-1", withGPU("4"))).
+		withOpts(func(o *engine.Options) { o.GPUProbeImage = "busybox:1.36" })
+	r := gpuTestRunWithProbes(t, f, 10*time.Second,
+		gpuTestPodReactor("gpu-1",
+			"/bin/sh: error while loading shared libraries: libdl.so.2: cannot open shared object file: No such file or directory\n",
+			gpuTestTerminated("Failed", "Error", 127)))
+	assertSkipHasReason(t, r)
+	gpuTestAssertMentions(t, r, "busybox:1.36", "libdl.so.2", "--gpu-probe-image", gpuDefaultProbeImage)
+	gpuTestAssertSilentOn(t, r, "stage:")
 }
 
 // Ran, exited, and asserted nothing readable. Inferring a device fault from a

@@ -121,6 +121,7 @@ func run() int {
 		ArgoCDNamespace: cfg.argocdNamespace,
 		ArgoCDEnabled:   !cfg.noArgoCD,
 		RegistryCreds:   map[string]adapters.Credential{},
+		BudctlVersion:   Version,
 	}
 	if answers.RegistryUser != "" {
 		c.Opts.RegistryCreds["registry.bud.studio"] = adapters.Credential{
@@ -178,13 +179,7 @@ func run() int {
 	} else {
 		rep = engine.Summarize(engine.Run(ctx, c, sel, nil))
 	}
-	rep.Platform = string(c.Platform.Distribution)
-	rep.Meta = map[string]string{
-		"budctlVersion":  Version,
-		"catalogVersion": profile.CatalogVersion,
-		"serverVersion":  c.Platform.Version,
-		"domain":         answers.Domain,
-	}
+	rep.Stamp(c)
 
 	switch cfg.format {
 	case "json":

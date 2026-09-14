@@ -185,10 +185,6 @@ func regFeatureActive(ctx context.Context, c *engine.Ctx, feature string) bool {
 		return known && len(nodes) > 0
 	case "opensandbox":
 		return c.Answers.OpenSandbox
-	case "model-serving":
-		// Serving models is the product. Only an install that intends to hold
-		// no models at all can treat the vLLM runtime registry as optional.
-		return c.Answers.ModelCount > 0 || c.Answers.Deployments > 0
 	case "":
 		return true
 	default:

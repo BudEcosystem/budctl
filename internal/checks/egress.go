@@ -86,6 +86,27 @@ func init() {
 		},
 	})
 
+	// The ACME directory is not an install-time fetch: the sync completes
+	// without it and cert-manager simply never issues. It is on the path only
+	// when the operator chose ACME — a provided certificate is a Secret, and
+	// 'none' publishes plain HTTP — so it gets its own check and its own gate.
+	engine.Register(&engine.Check{
+		ID: "egress.acme", Group: "egress", Severity: engine.Block,
+		DependsOn: []string{"platform"}, Probe: true,
+		Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
+			ch := engine.Lookup("egress.acme")
+			if !strings.HasPrefix(string(c.Answers.TLS), "acme") {
+				return ch.Skip("TLS will be obtained by " + domainsTLSMethod(c) + ", so cert-manager never calls an ACME directory")
+			}
+			r := egressEvaluate(ctx, c, ch, "acme",
+				"cert-manager cannot register an ACME account, so no certificate is issued and every hostname serves an untrusted one")
+			if r.State == engine.StateFail {
+				r.Remedy += " — or answer TLS as 'provided' and supply the certificate, which takes ACME off the path"
+			}
+			return r
+		},
+	})
+
 	// Port 22, not 443. An egress allowlist written as "HTTPS to the internet"
 	// covers every other check in this group and still breaks every ArgoCD
 	// Application whose repoURL is ssh:// — and it breaks them quietly, as a
@@ -642,8 +663,11 @@ func egressEvaluate(ctx context.Context, c *engine.Ctx, ch *engine.Check, when, 
 // egressNoun names a catalogue slice the way the report should read it:
 // "install-time", not "install", and never "runtime-time".
 func egressNoun(when string) string {
-	if when == "install" {
+	switch when {
+	case "install":
 		return "install-time"
+	case "acme":
+		return "ACME"
 	}
 	return when
 }
@@ -875,6 +899,10 @@ func egressReportProxy(ctx context.Context, c *engine.Ctx, ch *engine.Check) eng
 // egressNodeProxyHints looks for proxy environment variables on workloads that are
 // already running. It is a heuristic, not a reading of the node environment —
 // which is why the result is INFO and says so.
+//
+// NO_PROXY on its own is not a hint: k3s's helm controller sets it on every
+// helm-install pod whether or not a proxy exists, so it is reported only beside
+// an HTTP_PROXY or HTTPS_PROXY on the same container.
 func egressNodeProxyHints(ctx context.Context, c *engine.Ctx) []string {
 	if c.Kube == nil {
 		return nil
@@ -886,6 +914,7 @@ func egressNodeProxyHints(ctx context.Context, c *engine.Ctx) []string {
 			if !ok {
 				continue
 			}
+			var proxies, noProxy []string
 			for _, e := range envs {
 				em, ok := e.(map[string]any)
 				if !ok {
@@ -893,12 +922,19 @@ func egressNodeProxyHints(ctx context.Context, c *engine.Ctx) []string {
 				}
 				name, _ := em["name"].(string)
 				value, _ := em["value"].(string)
-				switch strings.ToUpper(name) {
-				case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY":
-					if value != "" {
-						out = append(out, fmt.Sprintf("pod/%s: %s=%s", p.Name(), strings.ToUpper(name), value))
-					}
+				if value == "" {
+					continue
 				}
+				line := fmt.Sprintf("pod/%s: %s=%s", p.Name(), strings.ToUpper(name), value)
+				switch strings.ToUpper(name) {
+				case "HTTP_PROXY", "HTTPS_PROXY":
+					proxies = append(proxies, line)
+				case "NO_PROXY":
+					noProxy = append(noProxy, line)
+				}
+			}
+			if len(proxies) > 0 {
+				out = append(append(out, proxies...), noProxy...)
 			}
 		}
 	}

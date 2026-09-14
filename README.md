@@ -204,10 +204,12 @@ a closed output pipe (`budctl check | head`), which kills a Go program outright
 unless it says otherwise. `--no-probe` is read-only; `budctl cleanup` sweeps leftovers from a
 killed run.
 
-The GPU probe requests `nvidia.com/gpu: 1` on a **busybox-class image**, not a
+The GPU probe requests `nvidia.com/gpu: 1` on a **slim Debian image**, not a
 CUDA image: asserting the injected device node is present proves allocation,
 device-plugin injection and the runtime-hook chain for megabytes instead of
-gigabytes.
+gigabytes. It is not busybox because HAMi preloads its vGPU library into every
+GPU container, and that library needs glibc's `libdl.so.2`; point
+`--gpu-probe-image` at a mirror of any glibc image on an air-gapped cluster.
 
 ## SKIP is never a pass
 

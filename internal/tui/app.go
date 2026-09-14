@@ -144,7 +144,9 @@ func (m *Model) startRun() tea.Cmd {
 	m.prog = newProgress()
 	go func() {
 		results := engine.Run(m.runCtx, m.ctx, m.sel, observer{ch: m.statusCh})
-		m.statusCh <- doneMsg{report: engine.Summarize(results)}
+		rep := engine.Summarize(results)
+		rep.Stamp(m.ctx)
+		m.statusCh <- doneMsg{report: rep}
 	}()
 	return tea.Batch(m.waitForMsg(), m.spin.Tick)
 }

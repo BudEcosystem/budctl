@@ -372,10 +372,33 @@ func init() {
 				Output: strings.Join(Sorted(seen), "\n"),
 			}
 			if match == nil {
+				// With no matching Secret ArgoCD pulls anonymously, and a charts
+				// project the registry serves to anonymous clients needs no
+				// Secret at all. Ask the registry the same question before
+				// predicting a 401 that the cluster may never see.
+				var anonEv []engine.Evidence
+				refused := ""
+				if c.OCI != nil {
+					ref, version := argocdUmbrellaChartRef(c)
+					status, note := c.OCI.ChartManifest(ctx, ref, version, nil)
+					anonEv = append(anonEv, engine.Evidence{
+						What:   "HEAD " + ref + " at " + version + " with no credential (anonymous token)",
+						Output: string(status) + " — " + note,
+					})
+					if status == adapters.ManifestOK {
+						return ch.Pass(fmt.Sprintf("no repository Secret covers %s/%s, and none is needed: the registry serves the %s chart to an anonymous pull, which is how ArgoCD fetches it without one",
+							argocdChartRegistry, argocdChartRepo, argocdUmbrellaChart)).
+							WithEvidence(append([]engine.Evidence{ev}, anonEv...)...).
+							Bounds("anonymous access is a setting on the registry's charts project, not on this cluster: if that project is made private, every Application's next pull fails with 401 until a repository Secret exists — and this pull came from this workstation, so whether the repo-server can reach the registry is argocd.chart-repo-reachable's question")
+					}
+					if status == adapters.ManifestUnauthorized {
+						refused = ", and the registry refuses an anonymous pull"
+					}
+				}
 				return ch.Fail(
-					fmt.Sprintf("no ArgoCD repository Secret covers %s/%s, so every Application sourcing the %s chart fails its first pull with 401 unauthorized", argocdChartRegistry, argocdChartRepo, argocdUmbrellaChart),
+					fmt.Sprintf("no ArgoCD repository Secret covers %s/%s%s, so every Application sourcing the %s chart fails its first pull with 401 unauthorized", argocdChartRegistry, argocdChartRepo, refused, argocdUmbrellaChart),
 					"kubectl apply -n "+inst.namespace+" -f - <<'EOF'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: bud-charts-repo\n  labels:\n    argocd.argoproj.io/secret-type: repository\nstringData:\n  type: helm\n  url: "+argocdChartRegistry+"/"+argocdChartRepo+"\n  enableOCI: \"true\"\n  username: robot$yourname\n  password: <token>\nEOF").
-					WithEvidence(ev)
+					WithEvidence(append([]engine.Evidence{ev}, anonEv...)...)
 			}
 
 			name := match.Name()
@@ -782,6 +805,18 @@ func argocdSecretField(o adapters.Object, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(dec))
+}
+
+// argocdUmbrellaChartRef is the chart and version an Application sources: the
+// pin charts.oci resolves, or the version in --chart-dir when one was given.
+func argocdUmbrellaChartRef(c *engine.Ctx) (ref, version string) {
+	version = argocdTargetChartVersion(c)
+	for _, e := range chartsOCICatalogue {
+		if e.name == argocdUmbrellaChart && version == "" {
+			version = e.version
+		}
+	}
+	return "oci://" + argocdChartRegistry + "/" + argocdChartRepo + "/" + argocdUmbrellaChart, version
 }
 
 // argocdRepoHost extracts the registry host from an ArgoCD repository URL. OCI
