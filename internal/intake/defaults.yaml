@@ -1,0 +1,243 @@
+# Floors and inventories budctl embeds at build time (FRD-020 §7, §9.3).
+# These are the values an operator cannot reasonably be asked for. Capacity
+# requirements do NOT live here — they derive from the intake answers.
+catalogVersion: "2026-09-13"
+
+# 80 GiB, not 60. The 14 first-party images at 1.2.8 measure 19.8 GiB compressed
+# from registry manifests, inferring to ~40 GiB extracted; novu x4, otel,
+# prometheus, curl and alpine bring it to ~55 GiB. The remaining ~25 GiB is a
+# deliberate buffer: the extracted figure is inferred rather than measured,
+# images grow between releases, and a node at exactly the floor is already
+# inside the kubelet's garbage-collection band.
+imageFsGi: 80
+
+# Summed from the chart defaults, excluding the model registry — that claim is
+# sized from the operator's own answer rather than from a default.
+#   budmodelAddDir 20 + budappStaticDir 20 + budcache 10 + prometheus 8
+# Not included: budevalDataset (32Gi), because budeval is disabled by default.
+# Enabling it adds 32 GiB that nothing here accounts for.
+baseStorageGi: 58
+
+# Every in-cluster data store at its chart default, with replica counts applied:
+#   postgres      3 x 16 =  48    seaweedfs vol  2 x 64 = 128
+#   clickhouse    3 x  8 =  24    seaweedfs wkr  2 x  1 =   2
+#   ch-keeper     3 x  1 =   3    valkey         3 x  1 =   3
+#   kafka         3 x  8 =  24    dapr scheduler 3 x  8 =  24
+#   mongodb       3 x  4 =  12    harbor redis   1 x  1 =   1
+# An earlier value of 190 here was wrong: it subtracted an "overlap" that does
+# not exist, and understated the requirement by 79 GiB.
+dataStoreStorageGi: 269
+
+# ESTIMATE, not a measurement. Trace and metric volume depends entirely on
+# request rate, and nothing in this repository records a per-day figure. It is
+# carried so retention has SOME effect on the sizing rather than none, and every
+# surface that uses it labels it as an estimate. Replace it with a measured
+# figure from a running cluster when one exists.
+clickHouseGiPerDay: 1
+
+minNodes: 1
+minNodesWithAddons: 3      # Kafka min.insync.replicas=2, ClickHouse Keeper quorum 3, CNPG 3 instances
+baseCpuCores: 6.0
+baseMemoryGi: 33.0
+largestPodMemoryGi: 6.0    # semantic-router requests 6Gi
+largestPodCpuCores: 1.0
+
+minKubernetes: "1.25"
+minOpenShift: "4.12"
+
+hfThroughputMBs: 5.0
+clockSkewWarnSeconds: 30
+clockSkewFailSeconds: 120
+
+# Installed by the two ApplicationSets, therefore NOT prerequisites (FRD-020 §3.1).
+appsetComponents:
+  - argocd
+  - cert-manager
+  - clickhouse
+  - dapr
+  - harbor
+  - kafka
+  - keel
+  - keycloak
+  - kyverno
+  - mongodb
+  - openebs
+  - opensandbox
+  - otel
+  - postgres
+  - seaweedfs
+  - signoz
+  - valkey
+  - valkey-cluster
+  - velero
+  - bud
+
+# Verified by fetching the upstream charts and cross-checking against the images
+# running in a live cluster. Four of these appear NOWHERE in the bud-runtime
+# repository: they are upstream chart defaults that Bud installs unmodified.
+registries:
+  - host: registry.bud.studio
+    pulledBy: every first-party image, and the OCI charts
+    requirement: required
+  - host: docker.io
+    pulledBy: Aibrix (budstudio/*), HAMi (projecthami/hami), ClickHouse, Percona MongoDB, SeaweedFS, curl, alpine, otel-collector
+    requirement: required
+  - host: quay.io
+    pulledBy: Keycloak, ArgoCD, Prometheus; the cert-manager and Strimzi OCI charts
+    requirement: required
+  - host: ghcr.io
+    pulledBy: Dapr, CloudNativePG, OpenTelemetry operator, valkey-operator, budecosystem scaler
+    requirement: required
+  - host: registry.k8s.io
+    pulledBy: prometheus-adapter, NFD, kube-state-metrics, CSI sidecars
+    requirement: required
+  - host: ecr-public.aws.com
+    pulledBy: ArgoCD's bundled Redis (docker/library/redis), HAProxy in HA mode
+    requirement: required
+  - host: reg.kyverno.io
+    pulledBy: Kyverno, all five images, via the chart's defaultRegistry
+    requirement: required
+    feature: kyverno
+  - host: budimages.azurecr.io
+    pulledBy: vLLM runtime and node-info-collector images, at model-deploy time
+    requirement: conditional
+    feature: model-serving
+  - host: nvcr.io
+    pulledBy: NVIDIA GPU operator and dcgm-exporter
+    requirement: conditional
+    feature: gpu
+  - host: registry.cn-hangzhou.aliyuncs.com
+    pulledBy: HAMi's google_containers/kube-scheduler sidecar
+    requirement: conditional
+    feature: gpu
+  - host: sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com
+    pulledBy: OpenSandbox controller, server, egress, image-committer
+    requirement: conditional
+    feature: opensandbox
+  - host: mirror.gcr.io
+    pulledBy: Harbor's trivy.dbRepository (trivy.enabled=false today)
+    requirement: dormant
+  - host: docker.redpanda.com
+    pulledBy: SigNoz's bundled Redpanda subchart (redpanda.enabled=false today)
+    requirement: dormant
+
+egress:
+  - url: https://registry.bud.studio/v2/
+    label: Bud private registry
+    when: install
+    consequence: every first-party image and the OCI charts fail to pull
+  - url: https://registry-1.docker.io/v2/
+    label: Docker Hub
+    when: install
+    consequence: Aibrix, HAMi, ClickHouse, MongoDB, SeaweedFS and the probe images fail to pull
+  - url: https://quay.io/v2/
+    label: Quay
+    when: install
+    consequence: Keycloak, ArgoCD and Prometheus images; cert-manager and Strimzi OCI charts
+  - url: https://ghcr.io/v2/
+    label: GitHub Container Registry
+    when: install
+    consequence: Dapr, CloudNativePG, OpenTelemetry operator and valkey-operator fail to pull
+  - url: https://registry.k8s.io/v2/
+    label: registry.k8s.io
+    when: install
+    consequence: prometheus-adapter, NFD and every CSI sidecar fail to pull
+  - url: https://ecr-public.aws.com/v2/
+    label: ECR Public
+    when: install
+    consequence: ArgoCD's bundled Redis fails to pull, so ArgoCD never becomes healthy
+  - url: https://reg.kyverno.io/v2/
+    label: Kyverno registry
+    when: optional
+    consequence: the Kyverno addon cannot pull its five images
+  - url: https://prometheus-community.github.io/helm-charts/index.yaml
+    label: prometheus-community charts
+    when: install
+    consequence: the umbrella chart's prometheus and prometheus-adapter dependencies
+  - url: https://charts.bitnami.com/bitnami/index.yaml
+    label: bitnami charts
+    when: install
+    consequence: the common library subchart
+  - url: https://dapr.github.io/helm-charts/index.yaml
+    label: dapr charts
+    when: install
+    consequence: the Dapr control plane cannot be installed
+  - url: https://cloudnative-pg.github.io/charts/index.yaml
+    label: CloudNativePG charts
+    when: install
+    consequence: no PostgreSQL operator, so every service's database is absent
+  - url: https://docs.altinity.com/clickhouse-operator/index.yaml
+    label: Altinity ClickHouse charts
+    when: install
+    consequence: no ClickHouse operator, so budmetrics and gateway analytics have nowhere to write
+  - url: https://percona.github.io/percona-helm-charts/index.yaml
+    label: Percona charts
+    when: install
+    consequence: no MongoDB operator, so Novu will not start
+  - url: https://seaweedfs.github.io/seaweedfs-operator/index.yaml
+    label: SeaweedFS charts
+    when: install
+    consequence: no S3 object store for the model registry
+  - url: https://openebs.github.io/openebs/index.yaml
+    label: OpenEBS charts
+    when: optional
+    consequence: only if OpenEBS is the chosen storage provisioner
+  - url: https://open-telemetry.github.io/opentelemetry-helm-charts/index.yaml
+    label: OpenTelemetry charts
+    when: install
+    consequence: no OTel operator, so trace collection is absent
+  - url: https://argoproj.github.io/argo-helm/index.yaml
+    label: Argo charts
+    when: optional
+    consequence: only when bootstrapping ArgoCD from the Helm chart
+  - url: https://charts.signoz.io/index.yaml
+    label: SigNoz charts
+    when: optional
+    consequence: the SigNoz observability addon
+  - url: https://kubernetes-sigs.github.io/node-feature-discovery/charts/index.yaml
+    label: NFD charts
+    when: runtime
+    consequence: budcluster installs Node Feature Discovery during cluster onboarding
+  - url: https://project-hami.github.io/HAMi/index.yaml
+    label: HAMi charts
+    when: optional
+    consequence: GPU time-slicing, auto-installed when NVIDIA GPUs are detected
+  - url: https://helm.ngc.nvidia.com/nvidia/index.yaml
+    label: NVIDIA NGC charts
+    when: optional
+    consequence: the NVIDIA GPU operator on GPU clusters
+  - url: https://github.com/BudEcosystem/aibrix/releases/download/0.3.0/aibrix-dependency-v0.3.0.yaml
+    label: Aibrix release manifests (GitHub)
+    when: runtime
+    consequence: budcluster cannot install the Aibrix data plane during cluster onboarding
+  - url: https://objects.githubusercontent.com
+    label: GitHub release asset CDN
+    when: runtime
+    consequence: every github.com release download redirects here; allowlisting github.com alone fails
+  - url: https://budconnect.bud.studio
+    label: BudConnect
+    when: runtime
+    consequence: model catalogue and compatibility metadata when adding a model; degrades to direct HF
+  - url: https://huggingface.co/api/models/gpt2
+    label: Hugging Face API
+    when: runtime
+    consequence: every model added from Hugging Face; no HF_ENDPOINT mirror override exists in the tree
+  - url: https://hf.co
+    label: hf.co
+    when: runtime
+    consequence: weight files come from a rotating cdn-lfs* CDN host; allowlisting huggingface.co alone stalls downloads
+  - url: https://pypi.org/simple/
+    label: PyPI
+    when: optional
+    consequence: sandboxed code execution and eval harnesses that install packages at runtime
+  - url: https://acme-v02.api.letsencrypt.org/directory
+    label: Let's Encrypt ACME
+    when: install
+    consequence: certificate issuance for every ingress host; without it TLS stays self-signed
+
+egressTcp:
+  - host: github.com
+    port: 22
+    label: GitHub over SSH
+    when: install
+    consequence: every ArgoCD Application sourcing from ssh://git@github.com stops syncing. Port 22, not 443 — the likeliest thing a corporate egress policy blocks.
