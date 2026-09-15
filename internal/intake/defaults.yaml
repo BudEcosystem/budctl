@@ -1,7 +1,7 @@
 # Floors and inventories budctl embeds at build time (FRD-020 §7, §9.3).
 # These are the values an operator cannot reasonably be asked for. Capacity
 # requirements do NOT live here — they derive from the intake answers.
-catalogVersion: "2026-09-15"
+catalogVersion: "2026-09-15.1"
 
 # 80 GiB, not 60. The 14 first-party images at 1.2.8 measure 19.8 GiB compressed
 # from registry manifests, inferring to ~40 GiB extracted; novu x4, otel,
@@ -73,12 +73,16 @@ appsetComponents:
   - bud
 
 # Verified by fetching the upstream charts and cross-checking against the images
-# running in a live cluster. Four of these appear NOWHERE in the bud-runtime
+# running in a live cluster. Three of these appear NOWHERE in the bud-runtime
 # repository: they are upstream chart defaults that Bud installs unmodified.
 #
 # budimages.azurecr.io is retired and deliberately absent. Leftover references
 # still name it — budcluster's NODE_INFO_* image env in the bud chart, which no
 # code reads — but nothing an install or a deployment runs pulls from it.
+#
+# registry.cn-hangzhou.aliyuncs.com is absent too. It is HAMi's chart default for
+# the kube-scheduler sidecar, and budcluster overrides that to
+# registry.k8s.io/kube-scheduler, a host already required above.
 registries:
   - host: registry.bud.studio
     pulledBy: every first-party image, and the OCI charts
@@ -93,7 +97,7 @@ registries:
     pulledBy: Dapr, CloudNativePG, OpenTelemetry operator, valkey-operator, budecosystem scaler
     requirement: required
   - host: registry.k8s.io
-    pulledBy: prometheus-adapter, NFD, kube-state-metrics, CSI sidecars
+    pulledBy: prometheus-adapter, NFD, kube-state-metrics, CSI sidecars, HAMi's kube-scheduler sidecar
     requirement: required
   - host: ecr-public.aws.com
     pulledBy: ArgoCD's bundled Redis (docker/library/redis), HAProxy in HA mode
@@ -104,10 +108,6 @@ registries:
     feature: kyverno
   - host: nvcr.io
     pulledBy: NVIDIA GPU operator and dcgm-exporter
-    requirement: conditional
-    feature: gpu
-  - host: registry.cn-hangzhou.aliyuncs.com
-    pulledBy: HAMi's google_containers/kube-scheduler sidecar
     requirement: conditional
     feature: gpu
   - host: sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com

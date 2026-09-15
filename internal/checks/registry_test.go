@@ -392,8 +392,7 @@ func TestRegistryReachableRisksWhenOnlyInactiveFeatureHostsFail(t *testing.T) {
 	})
 	r := registryRun(t, f, "registry.reachable", func(c *engine.Ctx) {
 		registryStubNet(c, registryAnswers(http.StatusOK, map[string]int{
-			"nvcr.io":                           0,
-			"registry.cn-hangzhou.aliyuncs.com": 0,
+			"nvcr.io": 0,
 			"sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com": 0,
 		}))
 	})
@@ -419,11 +418,11 @@ func TestRegistryReachableBlocksWhenGPUNodesArePresentEvenIfUnanswered(t *testin
 	f := vanilla().with("nodes", "", node("n1"), node("g1", withGPU("4")))
 	r := registryRun(t, f, "registry.reachable", func(c *engine.Ctx) {
 		registryStubNet(c, registryAnswers(http.StatusOK, map[string]int{
-			"registry.cn-hangzhou.aliyuncs.com": 0,
+			"nvcr.io": 0,
 		}))
 	})
 	assertStatus(t, r, "BLOCK")
-	registryAssertMentions(t, r, "registry.cn-hangzhou.aliyuncs.com")
+	registryAssertMentions(t, r, "nvcr.io")
 }
 
 // mirror.gcr.io is dormant only while Harbor's trivy stays off. The promotion
@@ -1074,21 +1073,43 @@ func TestRegistryUpstreamDefaultsSkipsWithoutARender(t *testing.T) {
 // HAMi's Helm task is atomic, so this one unpullable image does not leave a
 // diagnosable ImagePullBackOff — it rolls the whole release back and GPU
 // onboarding fails with nothing to look at.
-func TestRegistryHAMiSchedulerBlocksWhenTheAlibabaMirrorIsUnreachable(t *testing.T) {
+func TestRegistryHAMiSchedulerBlocksWhenRegistryK8sIsUnreachable(t *testing.T) {
 	f := vanilla().with("nodes", "", node("n1"), node("g1", withGPU("4")))
 	r := registryRun(t, f, "registry.hami-scheduler", func(c *engine.Ctx) {
 		registryStubNet(c, registryAnswers(http.StatusOK, map[string]int{regHAMiRegistry: 0}))
 	})
 	assertStatus(t, r, "BLOCK")
 	registryAssertMentions(t, r,
-		"registry.cn-hangzhou.aliyuncs.com",
-		// The remedy must override BOTH fields and warn about the trap: the
-		// obvious one-line fix produces a 404.
-		"registry: registry.k8s.io",
+		"registry.k8s.io/kube-scheduler",
+		// A mirror must override BOTH fields and warn about the trap: the
+		// obvious one-line fix keeps the chart's google_containers/ prefix.
 		"repository: kube-scheduler",
 		"global.imageRegistry alone is NOT sufficient",
-		"404",
 	)
+}
+
+// budcluster overrides HAMi's Alibaba CN-region default, so the check must
+// probe the upstream image a GPU node will actually pull — probing the old
+// mirror would block every cluster whose egress policy rightly excludes it.
+func TestRegistryHAMiSchedulerNeverProbesTheAlibabaMirror(t *testing.T) {
+	f := vanilla().with("nodes", "", node("g1", withGPU("2")))
+	rec := &registryRecorder{next: registryAnswers(http.StatusOK, nil)}
+	r := registryRun(t, f, "registry.hami-scheduler", func(c *engine.Ctx) {
+		c.Platform.Version = "v1.36.3+k3s1"
+		registryStubNet(c, rec.answer)
+	})
+	assertStatus(t, r, "PASS")
+	if !rec.sawContaining("https://registry.k8s.io/v2/kube-scheduler/manifests/v1.36.3") {
+		t.Fatalf("expected a HEAD of the upstream kube-scheduler image, got:\n%s", strings.Join(rec.seen(), "\n"))
+	}
+	if rec.sawContaining("aliyuncs.com") {
+		t.Fatalf("the check still dialled the Alibaba mirror:\n%s", strings.Join(rec.seen(), "\n"))
+	}
+	for _, e := range egressTestProfile(t).Registries {
+		if e.Host == "registry.cn-hangzhou.aliyuncs.com" {
+			t.Fatal("the registry inventory still lists registry.cn-hangzhou.aliyuncs.com, so registry.reachable and registry.from-cluster would still probe it")
+		}
+	}
 }
 
 // A GPU node whose device plugin is not installed yet advertises no
@@ -1129,9 +1150,9 @@ func TestRegistryHAMiSchedulerDerivesTheTagFromTheClusterVersion(t *testing.T) {
 	}
 }
 
-// The mirror is well stocked, so a 404 is more likely to mean this cluster is
-// outside the mirrored range than that the derivation is wrong — either way the
-// pull fails, and the operator needs the same override.
+// registry.k8s.io publishes every release, so a 404 means this cluster reports a
+// version upstream never shipped — either way the pull fails, and the operator
+// needs a mirror carrying the tag.
 func TestRegistryHAMiSchedulerRisksWhenTheDerivedTagIsMissing(t *testing.T) {
 	f := vanilla().with("nodes", "", node("g1", withGPU("2")))
 	r := registryRun(t, f, "registry.hami-scheduler", func(c *engine.Ctx) {
@@ -1156,7 +1177,7 @@ func TestRegistryHAMiSchedulerRisksWhenAnonymousAccessIsRefused(t *testing.T) {
 
 // No GPU nodes means budcluster never installs HAMi, so this image is never
 // pulled. It must SKIP with that reason stated — not pass, which would read as
-// "the Alibaba mirror is reachable".
+// "the scheduler image is reachable".
 func TestRegistryHAMiSchedulerSkipsWithoutGPUNodes(t *testing.T) {
 	f := vanilla().with("nodes", "", node("n1"), node("n2"))
 	r := registryRun(t, f, "registry.hami-scheduler", func(c *engine.Ctx) {
