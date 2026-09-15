@@ -112,15 +112,21 @@ func init() {
 
 	engine.Register(&engine.Check{
 		ID: "components.ingress", Group: "components", Severity: engine.Block,
-		// DependsOn platform: OpenShift has no IngressClass to find — the
-		// Ingress Operator owns the path — and reporting a vanilla-only
-		// sub-check as PASS there (or the reverse) is the exact wrongness
-		// FRD-020 §5.0 exists to prevent.
-		DependsOn: []string{"platform"},
+		// DependsOn platform: on OpenShift the Ingress Operator owns the path and
+		// its router serves the openshift-default IngressClass, so the health
+		// question is asked of the operator rather than of a controller Service —
+		// reporting a vanilla-only sub-check as PASS there (or the reverse) is the
+		// exact wrongness FRD-020 §5.0 exists to prevent. DependsOn config: the
+		// class the chart's Ingresses request comes from the render, and
+		// `--only components` must still produce one.
+		DependsOn: []string{"platform", "config"},
 		Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
 			ch := engine.Lookup("components.ingress")
 			if c.Kube == nil {
 				return ch.Skip("cluster unreachable: the ingress path was not inspected")
+			}
+			if unserved := componentUnservedIngressObjects(ctx, c); len(unserved) > 0 {
+				return componentUnservedIngressResult(ctx, c, ch, unserved)
 			}
 			if c.Platform.IsOpenShift() {
 				return openShiftIngress(ctx, c, ch)
@@ -369,10 +375,125 @@ func openShiftIngress(ctx context.Context, c *engine.Ctx, ch *engine.Check) engi
 		}
 	}
 
+	// A healthy router serves only the Ingresses that name its class. The Bud
+	// charts default to className traefik, and an Ingress naming a class this
+	// cluster does not have is turned into a Route by nothing — the install
+	// completes and not one hostname answers.
+	controllers := map[string]string{}
+	routerClasses, inventory := []string{}, []string{}
+	for _, cl := range c.Kube.List(ctx, "ingressclasses.networking.k8s.io", "") {
+		ctrl := cl.DigString("spec", "controller")
+		controllers[cl.Name()] = ctrl
+		inventory = append(inventory, fmt.Sprintf("%s (%s)", cl.Name(), ctrl))
+		if ctrl == openShiftIngressToRoute {
+			routerClasses = append(routerClasses, cl.Name())
+		}
+	}
+	routerClasses = Sorted(routerClasses)
+	ev.Output += "\ningressclasses: " + firstNonEmpty(strings.Join(Sorted(inventory), ", "), "none")
+	useClass := "openshift-default"
+	if len(routerClasses) > 0 {
+		useClass = routerClasses[0]
+	}
+
+	detail := []string{}
+	requested := componentRequestedIngressClasses(c)
+	switch {
+	case len(requested) > 0:
+		var missing, foreign, served []string
+		for _, want := range requested {
+			ctrl, ok := controllers[want]
+			switch {
+			case !ok:
+				missing = append(missing, want)
+			case ctrl != openShiftIngressToRoute:
+				foreign = append(foreign, fmt.Sprintf("%s (%s)", want, ctrl))
+			default:
+				served = append(served, want)
+			}
+		}
+		if len(missing) > 0 {
+			return ch.Fail(
+				fmt.Sprintf("the chart's Ingresses request IngressClass %s, which does not exist on this cluster: the OpenShift router turns an Ingress into a Route only for its own class, so those hostnames are never served",
+					stQuoteList(missing)),
+				fmt.Sprintf("set ingress.className: %s in the values of every chart that publishes an Ingress (bud, keycloak, seaweedfs, argocd), and ingress.isTraefik: false so no Traefik objects are rendered", useClass),
+				"IngressClasses on this cluster: "+firstNonEmpty(strings.Join(Sorted(inventory), ", "), "none"),
+			).WithEvidence(ev)
+		}
+		if len(foreign) > 0 {
+			return ch.FailAs(engine.Risk,
+				fmt.Sprintf("the chart's Ingresses request %s, served by a controller other than the OpenShift router: this check verified the router, not that controller, so those hostnames are unverified",
+					strings.Join(foreign, ", ")),
+				fmt.Sprintf("set ingress.className: %s so the router serves them, or confirm that controller is running and exposed on 80 and 443", useClass),
+			).WithEvidence(ev)
+		}
+		detail = append(detail, fmt.Sprintf("the chart's Ingresses request %s, which the OpenShift router serves (%s)", strings.Join(served, ", "), openShiftIngressToRoute))
+	case len(Rendered(c)) == 0:
+		why := "no --values"
+		if c.Opts.ChartDir != "" || len(c.Opts.ValuesFiles) > 0 {
+			why = "the chart did not render with the supplied values (config.render carries the error)"
+		}
+		detail = append(detail, fmt.Sprintf("%s: the class the chart's Ingresses request was not compared with this cluster's IngressClasses. The Bud charts default to ingress.className: traefik and ingress.isTraefik: true; on OpenShift set ingress.className: %s and ingress.isTraefik: false", why, useClass))
+	}
+
 	return ch.Pass(
 		fmt.Sprintf("the OpenShift Ingress Operator is Available and the default IngressController serves %d %s on *.%s", replicas, Plural(replicas, "replica", "replicas"), domain),
+		detail...,
 	).WithEvidence(ev).
-		Bounds("Route admission is not evaluated: the IngressController's domain and any routeSelector decide whether a given hostname is admitted, and `domains.*` checks DNS and the inbound path rather than admission policy.")
+		Bounds("Route admission is not evaluated: the IngressController's domain and any routeSelector decide whether a given hostname is admitted, and `domains.*` checks DNS and the inbound path rather than admission policy. Only the chart passed with --chart is rendered, so the class keycloak, seaweedfs and argocd request is not compared.")
+}
+
+// openShiftIngressToRoute is the controller behind OpenShift's own IngressClass:
+// the component that turns an Ingress into a Route the router serves.
+const openShiftIngressToRoute = "openshift.io/ingress-to-route"
+
+// componentUnservedIngressObjects lists the rendered objects that belong to
+// Traefik's own API when this cluster does not serve it. The Bud charts render
+// Traefik Middlewares unless ingress.isTraefik is false, and on a cluster without
+// Traefik's CRDs — OpenShift, or any cluster on ingress-nginx — the sync stops at
+// the first one with "no matches for kind Middleware".
+func componentUnservedIngressObjects(ctx context.Context, c *engine.Ctx) []string {
+	out := []string{}
+	for _, o := range Rendered(c) {
+		av := o.APIVersion()
+		group, _, _ := strings.Cut(av, "/")
+		if group != "traefik.io" && group != "traefik.containo.us" {
+			continue
+		}
+		if c.Kube.HasAPIVersion(ctx, av) {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s/%s (%s)", o.Kind(), o.Name(), av))
+	}
+	return Sorted(out)
+}
+
+func componentUnservedIngressResult(ctx context.Context, c *engine.Ctx, ch *engine.Check, unserved []string) engine.Result {
+	className := "a class this cluster has"
+	if c.Platform.IsOpenShift() {
+		className = "openshift-default"
+	} else if names := componentClassNames(componentClassStatesByName(ctx, c)); len(names) > 0 {
+		className = "one of " + strings.Join(names, ", ")
+	}
+	return ch.Fail(
+		fmt.Sprintf("the chart renders %d Traefik %s, but this cluster serves no Traefik API: the sync stops at the first one with \"no matches for kind\", so the Application never finishes applying",
+			len(unserved), Plural(len(unserved), "object", "objects")),
+		fmt.Sprintf("set ingress.isTraefik: false in the values of every chart that publishes an Ingress (bud, keycloak, seaweedfs, argocd), and ingress.className to %s", className),
+		unserved...,
+	).WithEvidence(engine.Evidence{
+		What:   "rendered objects in the traefik.io / traefik.containo.us API groups, against the API versions this cluster serves",
+		Output: strings.Join(unserved, "\n"),
+	})
+}
+
+// componentClassStatesByName is the IngressClass inventory without the endpoint
+// matching, for remedies that only need the names.
+func componentClassStatesByName(ctx context.Context, c *engine.Ctx) []componentClassState {
+	out := []componentClassState{}
+	for _, cl := range c.Kube.List(ctx, "ingressclasses.networking.k8s.io", "") {
+		out = append(out, componentClassState{name: cl.Name(), controller: cl.DigString("spec", "controller")})
+	}
+	return out
 }
 
 func vanillaIngress(ctx context.Context, c *engine.Ctx, ch *engine.Check) engine.Result {
@@ -382,7 +503,7 @@ func vanillaIngress(ctx context.Context, c *engine.Ctx, ch *engine.Check) engine
 			"no IngressClass exists: every Ingress the install creates stays unclaimed, so not one hostname the chart publishes is ever reachable",
 			"install an ingress controller before applying the ApplicationSets — neither of them provides one. Any controller is acceptable: "+
 				"`helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace`, k3s's bundled Traefik, or the cloud provider's. "+
-				"Then set global.ingress.className to its class, or mark the class default with the `ingressclass.kubernetes.io/is-default-class: \"true\"` annotation.",
+				"Then set ingress.className to its class, or mark the class default with the `ingressclass.kubernetes.io/is-default-class: \"true\"` annotation.",
 		).WithEvidence(engine.Evidence{What: "kubectl get ingressclass", Output: "No resources found"})
 	}
 
@@ -434,7 +555,7 @@ func vanillaIngress(ctx context.Context, c *engine.Ctx, ch *engine.Check) engine
 			if !ok {
 				return ch.Fail(
 					fmt.Sprintf("the chart's Ingresses request IngressClass %q, which does not exist in this cluster: those Ingresses are claimed by no controller and none of their hostnames answers", want),
-					fmt.Sprintf("either set global.ingress.className in your values to a class that exists (%s), or install the controller that provides %q", strings.Join(componentClassNames(states), ", "), want),
+					fmt.Sprintf("either set ingress.className in your values to a class that exists (%s), or install the controller that provides %q", strings.Join(componentClassNames(states), ", "), want),
 				).WithEvidence(ev)
 			}
 			scope = append(scope, st)
@@ -483,7 +604,7 @@ func vanillaIngress(ctx context.Context, c *engine.Ctx, ch *engine.Check) engine
 		detail = append(detail, "other classes with no ready controller: "+strings.Join(controllerDown, "; "))
 	}
 	if !componentAnyDefault(states) && len(requested) == 0 {
-		detail = append(detail, "no IngressClass is marked default; set global.ingress.className in values so the chart's Ingresses name one explicitly")
+		detail = append(detail, "no IngressClass is marked default; set ingress.className in values so the chart's Ingresses name one explicitly")
 	}
 	return ch.Pass(
 		fmt.Sprintf("%s %s a controller with ready endpoints: %s",
