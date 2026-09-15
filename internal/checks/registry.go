@@ -25,11 +25,10 @@ import (
 // credentials are supplied and SKIP — never pass — when they are not.
 //
 // The host inventory is intake.Profile.Registries, not a grep of this
-// repository. Four of those hosts (ecr-public.aws.com, reg.kyverno.io,
-// registry.cn-hangzhou.aliyuncs.com, sandbox-registry.cn-zhangjiakou…) are
-// upstream chart defaults Bud installs unmodified and appear nowhere in the
-// tree (§5.4.0) — precisely the hosts a corporate egress policy is most likely
-// to block. registry.upstream-defaults is what keeps that inventory honest
+// repository. Three of those hosts (ecr-public.aws.com, reg.kyverno.io,
+// sandbox-registry.cn-zhangjiakou…) are upstream chart defaults Bud installs
+// unmodified and appear nowhere in the tree (§5.4.0) — precisely the hosts a
+// corporate egress policy is most likely to block. registry.upstream-defaults is what keeps that inventory honest
 // between releases (§5.4.2).
 //
 // Nothing here requests a blob. Every question is answered from /v2/ and from
@@ -38,24 +37,25 @@ import (
 
 const (
 	// HAMi's one non-Docker-Hub image. budcluster installs HAMi on any cluster
-	// where NVIDIA GPUs are detected and passes no registry override, so this
-	// Alibaba CN-region mirror is a hard dependency of GPU onboarding (§5.4.1).
-	regHAMiRegistry = "registry.cn-hangzhou.aliyuncs.com"
-	regHAMiRepo     = "google_containers/kube-scheduler"
+	// where NVIDIA GPUs are detected, and overrides the chart's Alibaba
+	// CN-region default (registry.cn-hangzhou.aliyuncs.com/google_containers/
+	// kube-scheduler) to the upstream image. The tag is still derived from the
+	// cluster's own version, so that tag has to exist upstream (§5.4.1).
+	regHAMiRegistry = "registry.k8s.io"
+	regHAMiRepo     = "kube-scheduler"
 
-	// The remedy must override BOTH fields. global.imageRegistry alone is a
-	// trap: it keeps the google_containers/ prefix, and
-	// registry.k8s.io/google_containers/kube-scheduler 404s (verified).
-	regHAMiRemedy = "override BOTH fields when HAMi is installed (playbooks/setup_cluster.yaml):\n" +
+	// A mirror must override BOTH fields. global.imageRegistry alone is a
+	// trap: it keeps the chart's google_containers/ prefix, and
+	// <mirror>/google_containers/kube-scheduler does not exist.
+	regHAMiRemedy = "allow " + regHAMiRegistry + " from the GPU nodes, or mirror " + regHAMiRegistry + "/" + regHAMiRepo +
+		" and point HAMi at the mirror (playbooks/setup_cluster.yaml), overriding BOTH fields:\n" +
 		"  scheduler:\n" +
 		"    kubeScheduler:\n" +
 		"      image:\n" +
-		"        registry: registry.k8s.io\n" +
+		"        registry: <mirror>\n" +
 		"        repository: kube-scheduler      # NOT google_containers/kube-scheduler\n" +
-		"global.imageRegistry alone is NOT sufficient and is a trap: it yields " +
-		"registry.k8s.io/google_containers/kube-scheduler, which returns 404, and it also " +
-		"redirects every Docker Hub image in the chart. The alternative is to mirror " +
-		regHAMiRegistry + "/" + regHAMiRepo + " into a registry this cluster can reach."
+		"global.imageRegistry alone is NOT sufficient: it keeps the chart's google_containers/ prefix, " +
+		"and it also redirects every Docker Hub image in the chart."
 )
 
 func init() {
@@ -941,10 +941,10 @@ func regKeys[V any](m map[string]V) []string {
 
 // regHAMiScheduler probes the one HAMi image that is not on Docker Hub. Three
 // facts make it a blocker rather than a curiosity (§5.4.1): budcluster installs
-// HAMi automatically wherever NVIDIA GPUs are detected, it passes no registry
-// override so the Alibaba CN-region default stands, and the Helm task runs with
-// atomic: true — so this single unpullable image rolls the entire release back
-// instead of leaving a diagnosable ImagePullBackOff.
+// HAMi automatically wherever NVIDIA GPUs are detected, the image's tag is the
+// cluster's own Kubernetes version, and the Helm task runs with atomic: true —
+// so this single unpullable image rolls the entire release back instead of
+// leaving a diagnosable ImagePullBackOff.
 func regHAMiScheduler(ctx context.Context, c *engine.Ctx, ch *engine.Check) engine.Result {
 	nodes, known := regGPUNodes(ctx, c)
 	if !known {
@@ -987,10 +987,10 @@ func regHAMiScheduler(ctx context.Context, c *engine.Ctx, ch *engine.Check) engi
 			Bounds("resolved from this workstation: the pull happens on the GPU node (registry.from-cluster), and HAMi's install is " +
 				"atomic, so a node-side failure rolls the whole release back")
 	case adapters.ManifestNotFound:
-		// The mirror is well stocked (v1.28.0 through v1.35.7 all resolve), so
-		// a miss is far more likely to mean this cluster's version is outside
-		// the mirrored range than that the derivation is wrong — but either way
-		// the pull fails, and the fix is the same override.
+		// registry.k8s.io publishes kube-scheduler for every Kubernetes patch
+		// release, so a miss means this cluster reports a version upstream
+		// never shipped — but either way the pull fails, and the fix is a
+		// mirror carrying the tag.
 		return ch.FailAs(engine.Risk,
 			fmt.Sprintf("%s answers but has no tag %s — HAMi would try to pull an image that does not exist and its atomic install would roll back", regHAMiRegistry, tag),
 			regHAMiRemedy,
@@ -1004,7 +1004,7 @@ func regHAMiScheduler(ctx context.Context, c *engine.Ctx, ch *engine.Check) engi
 		return ch.Fail(
 			fmt.Sprintf("%s is unreachable, so HAMi cannot pull %s — GPU cluster onboarding fails with a rolled-back release (atomic: true), not with a visible ImagePullBackOff", regHAMiRegistry, ref),
 			regHAMiRemedy,
-			append(detail, "reachability is the whole risk here: the mirror stocks v1.28.0 through v1.35.7, so the tag itself is rarely the problem")...).
+			append(detail, "reachability is the whole risk here: "+regHAMiRegistry+" publishes kube-scheduler for every Kubernetes release, so the tag itself is rarely the problem")...).
 			WithEvidence(ev)
 	}
 }
