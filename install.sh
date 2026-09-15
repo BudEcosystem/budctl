@@ -16,7 +16,7 @@ set -eu
 # tag that disagrees with it. Pinned rather than resolved from the GitHub
 # API at runtime: the unauthenticated API allows 60 requests per hour per IP,
 # which one NATed customer site can exhaust between two engineers.
-VERSION="${BUDCTL_VERSION:-0.3.1}"
+VERSION="${BUDCTL_VERSION:-0.3.2}"
 REPO="BudEcosystem/budctl"
 
 die() { echo "install.sh: $*" >&2; exit 1; }
