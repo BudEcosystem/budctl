@@ -768,8 +768,9 @@ func TestComponentsIngressOpenShiftPublishesRouterAddress(t *testing.T) {
 	}
 }
 
-// An OpenShift cluster must never be judged by IngressClass: seeding a dead one
-// alongside a healthy operator must not change the verdict.
+// An OpenShift cluster is not judged by an IngressClass the chart does not
+// request: seeding a dead one alongside a healthy operator must not change the
+// verdict.
 func TestComponentsIngressOpenShiftIgnoresIngressClasses(t *testing.T) {
 	f := openShift().
 		with("clusteroperators.config.openshift.io", "", componentsClusterOperator("ingress", true, false)).
@@ -778,6 +779,133 @@ func TestComponentsIngressOpenShiftIgnoresIngressClasses(t *testing.T) {
 		with("ingressclasses.networking.k8s.io", "", ingressClass("nginx", "k8s.io/ingress-nginx")).
 		with("endpointslices.discovery.k8s.io", "", componentsEndpointSlice("ingress-nginx", "ingress-nginx-controller", 0, 4))
 	assertStatus(t, run(t, f, "components.ingress"), "PASS")
+}
+
+// componentsOpenShiftRouter is a healthy OpenShift ingress path with the
+// IngressClass the Ingress Operator creates for its router.
+func componentsOpenShiftRouter() *fakeCluster {
+	return openShift().
+		with("clusteroperators.config.openshift.io", "", componentsClusterOperator("ingress", true, false)).
+		with("ingresscontrollers.operator.openshift.io", "openshift-ingress-operator",
+			ingressController("default", "apps.ocp.example.com", 1)).
+		with("ingressclasses.networking.k8s.io", "", ingressClass("openshift-default", openShiftIngressToRoute))
+}
+
+func componentsTraefikMiddleware(name string) adapters.Object {
+	return adapters.Object{
+		"apiVersion": "traefik.io/v1alpha1", "kind": "Middleware",
+		"metadata": map[string]any{"name": name, "namespace": "bud"},
+		"spec":     map[string]any{"redirectScheme": map[string]any{"scheme": "https"}},
+	}
+}
+
+// The Bud charts default to className traefik. On OpenShift that Ingress is
+// turned into a Route by nothing, so a perfectly healthy router serves none of
+// the chart's hostnames — and the operator check alone called this PASS.
+func TestComponentsIngressOpenShiftBlocksWhenChartRequestsAClassTheRouterDoesNotServe(t *testing.T) {
+	r, _ := componentsRun(t, componentsOpenShiftRouter(), "components.ingress", func(c *engine.Ctx) {
+		c.Set(engine.KeyRenderedObjects, []adapters.Object{componentsIngressObject("bud-bud", "traefik", false)})
+	})
+	assertStatus(t, r, "BLOCK")
+	componentsAssertSummaryHas(t, r, `"traefik"`)
+	for _, want := range []string{"ingress.className: openshift-default", "ingress.isTraefik: false"} {
+		if !strings.Contains(r.Remedy, want) {
+			t.Fatalf("remedy does not name %q: %s", want, r.Remedy)
+		}
+	}
+}
+
+// The tcs openshift values: className openshift-default, served by the router.
+func TestComponentsIngressOpenShiftPassesWhenChartRequestsTheRouterClass(t *testing.T) {
+	r, _ := componentsRun(t, componentsOpenShiftRouter(), "components.ingress", func(c *engine.Ctx) {
+		c.Set(engine.KeyRenderedObjects, []adapters.Object{
+			componentsIngressObject("bud-bud", "openshift-default", false),
+			componentsIngressObject("bud-novu", "openshift-default", false),
+		})
+	})
+	assertStatus(t, r, "PASS")
+	componentsAssertDetailHas(t, r, "request openshift-default, which the OpenShift router serves")
+}
+
+// A class served by a controller installed beside the router exists, but the
+// router's health says nothing about it: unverified, not passed.
+func TestComponentsIngressOpenShiftRisksOnAClassServedByAnotherController(t *testing.T) {
+	f := componentsOpenShiftRouter().
+		with("ingressclasses.networking.k8s.io", "",
+			ingressClass("openshift-default", openShiftIngressToRoute),
+			ingressClass("nginx", "k8s.io/ingress-nginx"))
+	r, _ := componentsRun(t, f, "components.ingress", func(c *engine.Ctx) {
+		c.Set(engine.KeyRenderedObjects, []adapters.Object{componentsIngressObject("bud-bud", "nginx", false)})
+	})
+	assertStatus(t, r, "RISK")
+	componentsAssertSummaryHas(t, r, "k8s.io/ingress-nginx")
+}
+
+// Without --values the class cannot be compared, and the pass has to say what
+// the values must set rather than imply the chart defaults will work.
+func TestComponentsIngressOpenShiftPassWithoutValuesNamesTheClassToSet(t *testing.T) {
+	r := run(t, componentsOpenShiftRouter(), "components.ingress")
+	assertStatus(t, r, "PASS")
+	componentsAssertDetailHas(t, r, "ingress.className: openshift-default and ingress.isTraefik: false")
+}
+
+// --values given but the chart refused to render: "no --values" would send the
+// operator looking for a flag they already passed.
+func TestComponentsIngressOpenShiftSaysTheRenderFailedWhenValuesWereGiven(t *testing.T) {
+	f := componentsOpenShiftRouter().withOpts(func(o *engine.Options) {
+		o.ChartDir = "infra/charts/bud"
+		o.ValuesFiles = []string{"values.openshift.yaml"}
+	})
+	r := run(t, f, "components.ingress")
+	assertStatus(t, r, "PASS")
+	componentsAssertDetailHas(t, r, "the chart did not render with the supplied values")
+}
+
+// ingress.isTraefik defaults to true, so the charts render Traefik Middlewares.
+// Wherever Traefik's CRDs are not installed — OpenShift, or ingress-nginx — the
+// sync stops at the first one, before a single hostname is published.
+func TestComponentsIngressBlocksOnTraefikObjectsTheClusterDoesNotServe(t *testing.T) {
+	cases := []struct {
+		name      string
+		cluster   *fakeCluster
+		class     string
+		className string
+	}{
+		{"openshift", componentsOpenShiftRouter(), "openshift-default", "openshift-default"},
+		{"vanilla on ingress-nginx", componentsHealthyBase(), "nginx", "nginx"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := componentsRun(t, tc.cluster, "components.ingress", func(c *engine.Ctx) {
+				c.Set(engine.KeyRenderedObjects, []adapters.Object{
+					componentsTraefikMiddleware("bud-https-redirect"),
+					componentsIngressObject("bud-bud", tc.class, false),
+				})
+			})
+			assertStatus(t, r, "BLOCK")
+			componentsAssertSummaryHas(t, r, "Traefik")
+			componentsAssertDetailHas(t, r, "Middleware/bud-https-redirect (traefik.io/v1alpha1)")
+			if !strings.Contains(r.Remedy, "ingress.isTraefik: false") || !strings.Contains(r.Remedy, tc.className) {
+				t.Fatalf("remedy must turn Traefik objects off and name a class this cluster has (%s): %s", tc.className, r.Remedy)
+			}
+		})
+	}
+}
+
+// Where Traefik's API is served, its Middlewares are exactly what the chart
+// needs — they must not be reported.
+func TestComponentsIngressAcceptsTraefikObjectsWhereTraefikIsServed(t *testing.T) {
+	f := componentsHealthyBase().
+		with("ingressclasses.networking.k8s.io", "", componentsDefaultIngressClass("traefik", "traefik.io/ingress-controller")).
+		with("endpointslices.discovery.k8s.io", "", componentsEndpointSlice("kube-system", "traefik", 2, 0))
+	f.apiGroups["traefik.io/v1alpha1"] = true
+	r, _ := componentsRun(t, f, "components.ingress", func(c *engine.Ctx) {
+		c.Set(engine.KeyRenderedObjects, []adapters.Object{
+			componentsTraefikMiddleware("bud-https-redirect"),
+			componentsIngressObject("bud-bud", "traefik", false),
+		})
+	})
+	assertStatus(t, r, "PASS")
 }
 
 // ---------------------------------------------------------------------------
