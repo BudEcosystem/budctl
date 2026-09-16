@@ -193,7 +193,7 @@ func TestChartsOCIRisksWhenOnlyAnUnselectedAddonIsAbsent(t *testing.T) {
 	r := chartsRun(t, vanilla(), "charts.oci",
 		chartsAllOK(chartsCode("/charts/kyverno/manifests/", http.StatusNotFound)), nil)
 	assertStatus(t, r, "RISK")
-	chartsMentions(t, r, "kyverno:0.0.4", "policy addon")
+	chartsMentions(t, r, "kyverno:0.0.2", "CA-injection addon")
 }
 
 // Scope is answer-driven: the same missing chart is a blocker or a risk

@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	authzv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -19,10 +22,12 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/yaml"
 )
 
-// Kube is the read-only cluster client. It caches per (resource, namespace) so
-// a run that inspects nodes from six different checks pays for one LIST.
+// Kube is the shared cluster client. Readiness calls are read-mostly and cached
+// per (resource, namespace); installer methods explicitly apply and sync the
+// small set of bootstrap resources they own.
 type Kube struct {
 	// Interfaces rather than concrete types so the check suite can drive every
 	// code path — notably the OpenShift branches — against a synthetic cluster.
@@ -245,6 +250,21 @@ func (k *Kube) CanServiceAccount(ctx context.Context, sa, saNamespace, verb, gro
 	return res.Status.Allowed, nil
 }
 
+// SecretData returns one key from a Secret without involving kubectl. It is
+// used after a self-signed installation to export the public root certificate;
+// callers must never use it to print private Secret material.
+func (k *Kube) SecretData(ctx context.Context, namespace, name, key string) ([]byte, error) {
+	secret, err := k.Clientset.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("read Secret %s/%s: %w", namespace, name, err)
+	}
+	value, ok := secret.Data[key]
+	if !ok || len(value) == 0 {
+		return nil, fmt.Errorf("Secret %s/%s has no %q data", namespace, name, key)
+	}
+	return append([]byte(nil), value...), nil
+}
+
 // NodeStats is the kubelet's own view of a node's filesystems, reached through
 // the API server proxy. This is the only source for image-layer headroom:
 // allocatable ephemeral-storage does not tell you how much the image store has
@@ -312,6 +332,136 @@ func (k *Kube) PodLogs(ctx context.Context, namespace, pod string) (string, erro
 	req := k.Clientset.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{})
 	b, err := req.DoRaw(ctx)
 	return string(b), err
+}
+
+// ApplyApplication creates or updates an ArgoCD Application using server-side
+// apply. It targets the stable Application GVR directly because a freshly
+// installed CRD may not yet be present in the discovery client's cache.
+func (k *Kube) ApplyApplication(ctx context.Context, manifest []byte) error {
+	var object map[string]any
+	if err := yaml.Unmarshal(manifest, &object); err != nil {
+		return fmt.Errorf("decode Application: %w", err)
+	}
+	u := &unstructured.Unstructured{Object: object}
+	if u.GetAPIVersion() != "argoproj.io/v1alpha1" || u.GetKind() != "Application" || u.GetName() == "" {
+		return fmt.Errorf("bootstrap manifest is not a named argoproj.io/v1alpha1 Application")
+	}
+	namespace := u.GetNamespace()
+	if namespace == "" {
+		namespace = "argocd"
+	}
+	body, err := json.Marshal(object)
+	if err != nil {
+		return err
+	}
+	force := true
+	gvr := schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+	_, err = k.Dynamic.Resource(gvr).Namespace(namespace).Patch(ctx, u.GetName(), types.ApplyPatchType, body, metav1.PatchOptions{
+		FieldManager: "budctl", Force: &force,
+	})
+	if err != nil {
+		return fmt.Errorf("apply ArgoCD Application %s/%s: %w", namespace, u.GetName(), err)
+	}
+	k.Invalidate("applications.argoproj.io", namespace)
+	return nil
+}
+
+// SyncArgoApplication requests a sync and waits for ArgoCD to report both the
+// desired revision and a healthy resource tree. A fresh cluster can need a
+// second reconciliation after one Application installs CRDs used by resources
+// in the same chart, so failed or stalled attempts are retried within timeout.
+// It uses the Application API directly so the argocd CLI is not a host
+// dependency.
+func (k *Kube) SyncArgoApplication(ctx context.Context, namespace, name string, timeout time.Duration) error {
+	gvr := schema.GroupVersionResource{Group: "argoproj.io", Version: "v1alpha1", Resource: "applications"}
+	resource := k.Dynamic.Resource(gvr).Namespace(namespace)
+	deadline := time.Now().Add(timeout)
+	var app *unstructured.Unstructured
+	for {
+		var err error
+		app, err = resource.Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("Application %s/%s was not created before timeout: %w", namespace, name, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	const attempts = 3
+	var lastStatus string
+	for attempt := 1; attempt <= attempts; attempt++ {
+		previousPhase, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "phase")
+		previousStarted, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "startedAt")
+		previousFinished, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "finishedAt")
+		operation := []byte(`{"operation":{"initiatedBy":{"username":"budctl"},"sync":{"prune":false}}}`)
+		if _, err := resource.Patch(ctx, name, types.MergePatchType, operation, metav1.PatchOptions{}); err != nil {
+			return fmt.Errorf("request sync for %s/%s: %w", namespace, name, err)
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		attemptDeadline := deadline
+		if left := attempts - attempt + 1; left > 1 {
+			attemptDeadline = time.Now().Add(remaining / time.Duration(left))
+		}
+		seenCurrentOperation := previousPhase == ""
+		for time.Now().Before(attemptDeadline) {
+			current, err := resource.Get(ctx, name, metav1.GetOptions{})
+			if err == nil {
+				app = current
+				phase, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "phase")
+				message, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "message")
+				started, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "startedAt")
+				finished, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "finishedAt")
+				_, operationPresent, _ := unstructured.NestedMap(app.Object, "operation")
+				if operationPresent || phase == "Running" || started != previousStarted || finished != previousFinished {
+					seenCurrentOperation = true
+				}
+				syncStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "status")
+				health, _, _ := unstructured.NestedString(app.Object, "status", "health", "status")
+				lastStatus = fmt.Sprintf("phase=%q sync=%q health=%q message=%q", phase, syncStatus, health, message)
+
+				if seenCurrentOperation {
+					switch phase {
+					case "Succeeded":
+						if syncStatus == "Synced" && health == "Healthy" {
+							return nil
+						}
+					case "Error", "Failed":
+						// A fresh chart may create a CRD and its custom resources in
+						// one pass. Let the next attempt reconcile those resources.
+						attemptDeadline = time.Now()
+					}
+				}
+			} else {
+				lastStatus = "read error: " + err.Error()
+			}
+			if time.Now().After(attemptDeadline) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(3 * time.Second):
+			}
+		}
+		if attempt < attempts && time.Now().Before(deadline) {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(3 * time.Second):
+			}
+		}
+	}
+	return fmt.Errorf("Application %s/%s did not become Synced and Healthy before timeout after %d attempts (%s)", namespace, name, attempts, lastStatus)
 }
 
 // NewFakeKube builds a Kube backed by in-memory objects. It exists so the check

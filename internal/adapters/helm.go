@@ -2,7 +2,10 @@ package adapters
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"strings"
+	"time"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart"
@@ -10,6 +13,7 @@ import (
 	"helm.sh/helm/v3/pkg/chartutil"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/kube"
+	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/storage"
 	"helm.sh/helm/v3/pkg/storage/driver"
@@ -113,6 +117,98 @@ func (h *Helm) RenderServerSide(ctx context.Context, k *Kube, ch *chart.Chart, v
 		return nil, err
 	}
 	return &RenderResult{Objects: splitManifest(rel.Manifest), Manifest: rel.Manifest, ServerSide: true}, nil
+}
+
+// InstallOrUpgradeOCI bootstraps a release without requiring a helm binary or
+// persisting registry credentials. Release state is stored in the cluster in
+// the same Secret-backed format as the Helm CLI, so later upgrades can adopt it.
+func (h *Helm) InstallOrUpgradeOCI(ctx context.Context, k *Kube, ref, version, releaseName, namespace string, vals map[string]any, credential Credential) error {
+	return h.installOrUpgradeOCI(ctx, k, ref, version, releaseName, namespace, vals, nil, credential)
+}
+
+// InstallOrUpgradeOCIStaged uses firstInstallValues only when the release does
+// not exist, then immediately upgrades to vals. This supports charts that keep
+// CRDs in templates while also rendering custom resources from those CRDs:
+// Helm cannot REST-map both kinds during a single first installation.
+func (h *Helm) InstallOrUpgradeOCIStaged(ctx context.Context, k *Kube, ref, version, releaseName, namespace string, vals, firstInstallValues map[string]any, credential Credential) error {
+	return h.installOrUpgradeOCI(ctx, k, ref, version, releaseName, namespace, vals, firstInstallValues, credential)
+}
+
+func (h *Helm) installOrUpgradeOCI(ctx context.Context, k *Kube, ref, version, releaseName, namespace string, vals, firstInstallValues map[string]any, credential Credential) error {
+	if k == nil {
+		return fmt.Errorf("a Kubernetes client is required")
+	}
+	reg, err := registry.NewClient(
+		registry.ClientOptWriter(io.Discard),
+		registry.ClientOptBasicAuth(credential.Username, credential.Password),
+	)
+	if err != nil {
+		return fmt.Errorf("create OCI client: %w", err)
+	}
+	cfg := &action.Configuration{}
+	getter := &restClientGetter{k: k, namespace: namespace}
+	if err := cfg.Init(getter, namespace, "secret", func(string, ...any) {}); err != nil {
+		return fmt.Errorf("initialize Helm client: %w", err)
+	}
+	cfg.RegistryClient = reg
+
+	locator := action.ChartPathOptions{Version: version}
+	// ChartPathOptions has no public setter; Install exposes the supported
+	// setter and the locator embedded in it.
+	puller := action.NewInstall(cfg)
+	puller.ChartPathOptions = locator
+	puller.SetRegistryClient(reg)
+	chartPath, err := puller.LocateChart(ref, h.settings)
+	if err != nil {
+		return fmt.Errorf("pull %s:%s: %w", ref, version, err)
+	}
+	ch, err := loader.Load(chartPath)
+	if err != nil {
+		return fmt.Errorf("load downloaded chart: %w", err)
+	}
+
+	const timeout = 10 * time.Minute
+	upgrade := func() error {
+		up := action.NewUpgrade(cfg)
+		up.Namespace = namespace
+		up.Version = version
+		up.Wait = true
+		up.WaitForJobs = true
+		up.Atomic = true
+		up.Timeout = timeout
+		up.SetRegistryClient(reg)
+		if _, err := up.RunWithContext(ctx, releaseName, ch, vals); err != nil {
+			return fmt.Errorf("upgrade release %s: %w", releaseName, err)
+		}
+		return nil
+	}
+	if _, err := action.NewStatus(cfg).Run(releaseName); err == nil {
+		return upgrade()
+	}
+
+	installValues := vals
+	if firstInstallValues != nil {
+		installValues = firstInstallValues
+	}
+	inst := action.NewInstall(cfg)
+	inst.ReleaseName = releaseName
+	inst.Namespace = namespace
+	inst.CreateNamespace = true
+	inst.IncludeCRDs = true
+	inst.Wait = true
+	inst.WaitForJobs = true
+	inst.Atomic = true
+	inst.Timeout = timeout
+	inst.SetRegistryClient(reg)
+	if _, err := inst.RunWithContext(ctx, ch, installValues); err != nil {
+		return fmt.Errorf("install release %s: %w", releaseName, err)
+	}
+	if firstInstallValues != nil {
+		if err := upgrade(); err != nil {
+			return fmt.Errorf("finish staged installation after CRDs became available: %w", err)
+		}
+	}
+	return nil
 }
 
 func (h *Helm) configuration(k *Kube, namespace string) (*action.Configuration, error) {

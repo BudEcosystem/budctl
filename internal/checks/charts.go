@@ -71,7 +71,7 @@ var chartsOCICatalogue = []chartsOCIEntry{
 	{"kafka", "0.1.1", chartsScopeInClusterData, "the event bus"},
 	{"mongodb", "0.1.1", chartsScopeInClusterData, "Novu's datastore"},
 	{"seaweedfs", "0.1.1", chartsScopeInClusterData, "the S3 object store the model registry writes to"},
-	{"kyverno", "0.0.4", chartsScopeOptional, "policy addon, installed only when selected"},
+	{"kyverno", "0.0.2", chartsScopeOptional, "CA-injection addon for self-signed and internal-CA installations"},
 	{"budagent", "0.3.6", chartsScopeOptional, "bud-studio addon, installed only when selected"},
 }
 

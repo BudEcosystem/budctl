@@ -47,7 +47,7 @@ type Answers struct {
 func Defaults() Answers {
 	return Answers{
 		TLS: TLSACMEHTTP01, ModelStorageGi: 200, ModelCount: 5, Deployments: 3,
-		RetentionDays: 30, InClusterData: true, UseArgoCD: true,
+		RetentionDays: 30, InClusterData: true, UseArgoCD: true, OpenSandbox: true,
 	}
 }
 

@@ -23,11 +23,9 @@ type config struct {
 	gpu             bool
 	retentionDays   int
 	externalData    bool
-	noArgoCD        bool
 	configRepo      string
 	registryUser    string
 	registryPass    string
-	openSandbox     bool
 	answersFile     string
 	saveAnswers     string
 	chartDir        string
@@ -57,6 +55,31 @@ type config struct {
 	save            bool
 	theme           string
 	tuiForced       bool
+	installRepo     string
+	environment     string
+	pushBranch      string
+	repoSSHKey      string
+	ingressClass    string
+	storageClass    string
+	adminEmail      string
+	adminPassword   string
+	cloudflareToken string
+	issuerCACert    string
+	issuerCAKey     string
+	ageRecipients   multiFlag
+	budStudio       bool
+	studioModel     string
+	templateRepo    string
+	templateRef     string
+	recoveryKey     string
+	plan            bool
+	yes             bool
+	noPush          bool
+	noBootstrap     bool
+	noSync          bool
+	statePath       string
+	fresh           bool
+	setFlags        map[string]bool
 }
 
 // useTUI: interactive by default when there is a terminal and the operator
@@ -92,9 +115,9 @@ func parseFlags(argv []string) (config, error) {
 		argv = argv[1:]
 	}
 	switch c.command {
-	case "check", "cleanup", "version", "help":
+	case "check", "cleanup", "install", "version", "help":
 	default:
-		return c, fmt.Errorf("unknown command %q (want: check, cleanup, version)", c.command)
+		return c, fmt.Errorf("unknown command %q (want: check, install, cleanup, version)", c.command)
 	}
 	if c.command == "version" {
 		c.showVersion = true
@@ -115,18 +138,16 @@ func parseFlags(argv []string) (config, error) {
 
 	// Intake — FRD-020 §7. These are asked, not guessed.
 	fs.StringVar(&c.domain, "domain", "", "root domain the stack will publish under (required)")
-	fs.StringVar(&c.tls, "tls", "", "how TLS is obtained: acme-http01 | acme-dns01 | provided | none")
+	fs.StringVar(&c.tls, "tls", "", "TLS mode (check: acme-http01 | acme-dns01 | provided | none; install: acme-http01 | acme-dns01 | self-signed | internal-ca | external)")
 	fs.IntVar(&c.modelStorageGi, "model-storage-gi", 0, "GiB of model weight storage to provision for")
 	fs.IntVar(&c.modelCount, "models", 0, "roughly how many models will be held")
 	fs.IntVar(&c.deployments, "deployments", 0, "expected concurrent model deployments")
 	fs.BoolVar(&c.gpu, "gpu", false, "GPU deployments are expected")
 	fs.IntVar(&c.retentionDays, "retention-days", 0, "observability retention, sizes ClickHouse")
 	fs.BoolVar(&c.externalData, "external-datastores", false, "data stores are managed externally, not installed in-cluster")
-	fs.BoolVar(&c.noArgoCD, "no-argocd", false, "installing with Helm directly rather than ArgoCD")
 	fs.StringVar(&c.configRepo, "config-repo", "", "the config repo ArgoCD will read (https:// or ssh://)")
 	fs.StringVar(&c.registryUser, "registry-user", "", "registry.bud.studio robot account (optional at this stage)")
 	fs.StringVar(&c.registryPass, "registry-password", "", "registry.bud.studio token (optional at this stage)")
-	fs.BoolVar(&c.openSandbox, "opensandbox", false, "the OpenSandbox code interpreter will be enabled")
 	fs.StringVar(&c.answersFile, "answers", "", "read intake answers from a file")
 	fs.StringVar(&c.saveAnswers, "save-answers", "", "write the resolved answers to a file for re-runs")
 
@@ -161,7 +182,39 @@ func parseFlags(argv []string) (config, error) {
 	fs.StringVar(&c.theme, "theme", "auto", "interactive colours: auto (follow the terminal background) | dark | light")
 	fs.BoolVar(&c.tuiForced, "tui", false, "force the interactive view")
 
+	// GitOps installation. The existing readiness flags are deliberately reused
+	// for domain, TLS, capacity, GPU, registry and kube context.
+	fs.StringVar(&c.installRepo, "repo", "", "target GitOps repository to clone and push")
+	fs.StringVar(&c.environment, "environment", "", "DNS-safe environment name")
+	fs.StringVar(&c.pushBranch, "branch", "", "branch to create or update in the target repository (default: main)")
+	fs.StringVar(&c.repoSSHKey, "repo-ssh-key", "", "SSH deploy-key file ArgoCD will use for a private GitOps repository")
+	fs.StringVar(&c.ingressClass, "ingress-class", "", "Kubernetes IngressClass (detected when possible; default: traefik)")
+	fs.StringVar(&c.storageClass, "storage-class", "", "Kubernetes StorageClass (detected when possible)")
+	fs.StringVar(&c.adminEmail, "admin-email", "", "initial Bud administrator email")
+	fs.StringVar(&c.adminPassword, "admin-password", "", "initial administrator password (generated when omitted)")
+	fs.StringVar(&c.cloudflareToken, "cloudflare-token", "", "Cloudflare API token for ACME DNS-01")
+	fs.StringVar(&c.issuerCACert, "issuer-ca-cert", "", "PEM certificate for an existing internal issuing CA")
+	fs.StringVar(&c.issuerCAKey, "issuer-ca-key", "", "PEM private key for an existing internal issuing CA")
+	fs.Var(&c.ageRecipients, "age-recipient", "additional age recipient, repeatable")
+	fs.BoolVar(&c.budStudio, "bud-studio", false, "install the optional Bud Studio add-on")
+	fs.StringVar(&c.studioModel, "studio-model", "", "model used by Bud Studio")
+	fs.StringVar(&c.templateRepo, "template-repo", "", "Bud infra template repository")
+	fs.StringVar(&c.templateRef, "template-ref", "", "pinned template commit or tag")
+	fs.StringVar(&c.recoveryKey, "recovery-key", "", "path outside Git for the generated SOPS age identity")
+	fs.BoolVar(&c.plan, "plan", false, "validate and show generated paths without writing, pushing or changing the cluster")
+	fs.BoolVar(&c.yes, "yes", false, "accept both the Git push and cluster installation confirmations")
+	fs.BoolVar(&c.noPush, "no-push", false, "create a local committed workspace without pushing")
+	fs.BoolVar(&c.noBootstrap, "no-bootstrap", false, "do not install ArgoCD or apply its bootstrap Application")
+	fs.BoolVar(&c.noSync, "no-sync", false, "bootstrap ArgoCD and the ApplicationSet but leave child Applications unsynced")
+	fs.StringVar(&c.statePath, "state", "", "encrypted installer resume-state path")
+	fs.BoolVar(&c.fresh, "fresh", false, "ignore the previous installer state and start with defaults")
+
 	if err := fs.Parse(argv); err != nil {
+		return c, err
+	}
+	c.setFlags = map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { c.setFlags[f.Name] = true })
+	if err := rejectIrrelevantFlags(c.command, fs); err != nil {
 		return c, err
 	}
 	switch c.theme {
@@ -176,6 +229,41 @@ func parseFlags(argv []string) (config, error) {
 	}
 	return c, nil
 }
+
+func rejectIrrelevantFlags(command string, fs *flag.FlagSet) error {
+	installOnly := map[string]bool{
+		"repo": true, "environment": true, "branch": true, "repo-ssh-key": true,
+		"ingress-class": true, "storage-class": true, "admin-email": true,
+		"admin-password": true, "cloudflare-token": true, "issuer-ca-cert": true,
+		"issuer-ca-key": true, "age-recipient": true,
+		"bud-studio": true, "studio-model": true, "template-repo": true,
+		"template-ref": true, "recovery-key": true, "plan": true, "yes": true,
+		"no-push": true, "no-bootstrap": true, "no-sync": true,
+		"state": true, "fresh": true,
+	}
+	checkOnly := map[string]bool{
+		"retention-days": true, "external-datastores": true,
+		"answers": true, "save-answers": true, "chart": true, "values": true,
+		"secrets": true, "only": true, "skip": true, "no-probe": true,
+		"keep": true, "probe-namespace": true, "probe-image": true,
+		"gpu-probe-image": true, "egress-from": true, "hf-throughput": true,
+		"argocd-namespace": true, "output": true, "json": true, "save": true,
+		"strict": true, "verbose": true, "no-color": true, "no-tui": true,
+		"tui": true, "theme": true, "check-timeout": true, "net-timeout": true,
+	}
+	var bad string
+	fs.Visit(func(f *flag.Flag) {
+		if command == "install" && checkOnly[f.Name] || command == "check" && installOnly[f.Name] {
+			bad = f.Name
+		}
+	})
+	if bad != "" {
+		return fmt.Errorf("--%s is not used by budctl %s", bad, command)
+	}
+	return nil
+}
+
+func (c config) isSet(name string) bool { return c.setFlags[name] }
 
 func applyAnswerFlags(a *intake.Answers, c config) {
 	if c.domain != "" {
@@ -202,15 +290,13 @@ func applyAnswerFlags(a *intake.Answers, c config) {
 	if c.gpu {
 		a.GPU = true
 	}
-	if c.openSandbox {
-		a.OpenSandbox = true
-	}
+	a.OpenSandbox = true
 	if c.externalData {
 		a.InClusterData = false
 	}
-	if c.noArgoCD {
-		a.UseArgoCD = false
-	}
+	// GitOps is the sole supported delivery path. Keep the persisted answer for
+	// answers-file compatibility, but never revive the retired direct mode.
+	a.UseArgoCD = true
 	if c.configRepo != "" {
 		a.ConfigRepo = c.configRepo
 	}
@@ -230,10 +316,11 @@ func applyAnswerFlags(a *intake.Answers, c config) {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `budctl — is this cluster fit to host Bud?
+	fmt.Fprint(os.Stderr, `budctl — precheck and install Bud
 
 USAGE
   budctl check   [flags]     run the readiness checks (default)
+  budctl install [flags]     prepare, push and bootstrap a GitOps installation
   budctl cleanup [flags]     remove probe namespaces left by an interrupted run
   budctl version
 
@@ -270,6 +357,15 @@ EXAMPLES
 
   # CI gate
   budctl check --answers readiness.yaml --output json --strict
+
+  # guided GitOps installation; OpenSandbox is included by default
+  budctl install
+
+  # non-interactive preview (no filesystem, Git, or cluster changes)
+  budctl install --plan --no-prompt --repo https://github.com/acme/bud-config.git \
+      --environment production --domain bud.example.com --ingress-class nginx \
+      --storage-class standard --tls self-signed --registry-user robot \
+      --registry-password token --admin-email admin@example.com
 
 EXIT CODES
   0 READY    1 NOT READY    2 risks under --strict    3 budctl could not run

@@ -94,25 +94,10 @@ func buildIntakeForm(q *questions, width int) *huh.Form {
 				Affirmative("Yes").Negative("No").
 				Value(&q.GPU).
 				DescriptionFunc(q.gpuConsequence, &q.GPU),
-			huh.NewConfirm().
-				Title("Enable the OpenSandbox code interpreter?").
-				Affirmative("Yes").Negative("No").
-				Value(&q.OpenSandbox).
-				DescriptionFunc(q.sandboxConsequence, &q.OpenSandbox),
 		).
 			Title("3 · What it will run"),
 
-		// 4 ── delivery
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Install via ArgoCD?").
-				Affirmative("Yes").Negative("No, Helm directly").
-				Value(&q.ArgoCD).
-				DescriptionFunc(q.argoConsequence, &q.ArgoCD),
-		).
-			Title("4 · How it is delivered"),
-
-		// 4b ── only when ArgoCD is used
+		// 4 ── GitOps repository (ArgoCD is the sole delivery mode)
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Config repository URL").
@@ -122,8 +107,7 @@ func buildIntakeForm(q *questions, width int) *huh.Form {
 				DescriptionFunc(q.configRepoConsequence, &q.ConfigRepo),
 		).
 			Title("4 · Where ArgoCD reads configuration").
-			Description("The repository holding your values.yaml and secrets.yaml.").
-			WithHideFunc(q.hideConfigRepo),
+			Description("The repository holding your values.yaml and SOPS secrets."),
 
 		// 5 ── registry access
 		huh.NewGroup(

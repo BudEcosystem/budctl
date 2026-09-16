@@ -59,6 +59,9 @@ func run() int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if cfg.command == "install" {
+		return runInstall(ctx, cfg)
+	}
 
 	profile, err := intake.LoadProfile()
 	if err != nil {
@@ -119,7 +122,7 @@ func run() int {
 		ValuesFiles:     cfg.valuesFiles,
 		SecretsFile:     cfg.secretsFile,
 		ArgoCDNamespace: cfg.argocdNamespace,
-		ArgoCDEnabled:   !cfg.noArgoCD,
+		ArgoCDEnabled:   true,
 		RegistryCreds:   map[string]adapters.Credential{},
 		BudctlVersion:   Version,
 	}

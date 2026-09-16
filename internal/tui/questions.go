@@ -30,9 +30,7 @@ type questions struct {
 	Retention    string
 	GPU          bool
 	DataStores   string // "in-cluster" | "external"
-	ArgoCD       bool
 	ConfigRepo   string
-	OpenSandbox  bool
 	RegistryUser string
 	RegistryPass string
 	ValuesFile   string
@@ -58,9 +56,7 @@ func newQuestions(c *engine.Ctx, appsDomain string) *questions {
 		Retention:    itoa(a.RetentionDays),
 		GPU:          a.GPU,
 		DataStores:   "in-cluster",
-		ArgoCD:       a.UseArgoCD,
 		ConfigRepo:   a.ConfigRepo,
-		OpenSandbox:  a.OpenSandbox,
 		RegistryUser: a.RegistryUser,
 		RegistryPass: a.RegistryPass,
 		SecretsFile:  c.Opts.SecretsFile,
@@ -129,12 +125,9 @@ func validateWhole(label string) func(string) error {
 	}
 }
 
-// validateConfigRepo is mandatory under ArgoCD: the ApplicationSets read values
-// and secrets from this repo, so without one there is nothing to sync.
+// validateConfigRepo is mandatory: the ApplicationSets read values and secrets
+// from this repo, so without one there is nothing to sync.
 func (q *questions) validateConfigRepo(v string) error {
-	if !q.ArgoCD {
-		return nil
-	}
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return fmt.Errorf("required when installing via ArgoCD — the ApplicationSets read your values and secrets from it")
@@ -181,7 +174,6 @@ func (q *questions) validateAll() error {
 // ── visibility ──────────────────────────────────────────────────────────────
 
 func (q *questions) hideCABundle() bool      { return intake.TLSMethod(q.TLS) != intake.TLSProvided }
-func (q *questions) hideConfigRepo() bool    { return !q.ArgoCD }
 func (q *questions) hideRegistryToken() bool { return strings.TrimSpace(q.RegistryUser) == "" }
 func (q *questions) hideChartFiles() bool    { return strings.TrimSpace(q.ValuesFile) == "" }
 
@@ -253,13 +245,6 @@ func (q *questions) dataStoresConsequence() string {
 	return "Each external endpoint is resolved and probed from inside the cluster, and the databases that must already exist are listed."
 }
 
-func (q *questions) argoConsequence() string {
-	if q.ArgoCD {
-		return "ArgoCD being absent is never a blocker — it is normally installed after this check. Only its inputs are required."
-	}
-	return "The ArgoCD checks are skipped; a direct Helm install is assumed."
-}
-
 func (q *questions) configRepoConsequence() string {
 	v := strings.TrimSpace(q.ConfigRepo)
 	switch {
@@ -270,13 +255,6 @@ func (q *questions) configRepoConsequence() string {
 	default:
 		return "Checks the repository answers a git-upload-pack request."
 	}
-}
-
-func (q *questions) sandboxConsequence() string {
-	if q.OpenSandbox {
-		return "Makes sandbox-registry.cn-zhangjiakou.cr.aliyuncs.com required — an Alibaba CN-region registry, commonly blocked outside China."
-	}
-	return "The sandboxed code interpreter's images are not checked."
 }
 
 func (q *questions) registryConsequence() string {
@@ -317,9 +295,9 @@ func (q *questions) apply(c *engine.Ctx) {
 	a.RetentionDays = atoi(q.Retention)
 	a.GPU = q.GPU
 	a.InClusterData = q.DataStores == "in-cluster"
-	a.UseArgoCD = q.ArgoCD
+	a.UseArgoCD = true
 	a.ConfigRepo = strings.TrimSpace(q.ConfigRepo)
-	a.OpenSandbox = q.OpenSandbox
+	a.OpenSandbox = true
 	a.RegistryUser = strings.TrimSpace(q.RegistryUser)
 	a.RegistryPass = q.RegistryPass
 	c.Answers = a
@@ -331,7 +309,7 @@ func (q *questions) apply(c *engine.Ctx) {
 		_ = c.Net.TrustCABundle(a.CABundle)
 	}
 
-	c.Opts.ArgoCDEnabled = a.UseArgoCD
+	c.Opts.ArgoCDEnabled = true
 	c.Opts.NoProbe = !q.Probe
 	if v := strings.TrimSpace(q.ValuesFile); v != "" {
 		c.Opts.ValuesFiles = []string{v}

@@ -1,4 +1,4 @@
-# budctl — is this cluster fit to host Bud?
+# budctl — precheck and install Bud
 
 Run this **before** applying the ApplicationSets. It answers one question: would
 the install succeed, in *this* cluster, on *this* network, against *these*
@@ -17,9 +17,10 @@ to install from an internal mirror. Or take the binary for your platform from
 [Releases](https://github.com/BudEcosystem/budctl/releases), check it against
 `SHA256SUMS`, and `gunzip` it — the tool needs no installer to work.
 
-Nothing else has to be present: budctl carries client-go, Helm, SOPS and age as
-libraries, so no `kubectl`, `helm`, `sops` or `age` binary is required. All it
-needs is a kubeconfig with a reachable API server.
+budctl carries client-go, Helm, SOPS and age as libraries, so no `kubectl`,
+`helm`, `sops` or `age` binary is required. Readiness needs only a kubeconfig;
+the GitOps installer additionally uses the host's `git` client to clone and
+push the target repository.
 
 ## Use
 
@@ -35,8 +36,9 @@ discover that model storage is a question at all. There are seven short pages:
    the internal CA bundle when you supply your own certificate
 2. **What it needs to hold** — in-cluster or external data stores, model storage,
    model count, observability retention
-3. **What it will run** — concurrent deployments, GPU, OpenSandbox
-4. **How it is delivered** — ArgoCD, and its config repository (required under ArgoCD)
+3. **What it will run** — concurrent deployments and GPU; OpenSandbox is part
+   of the default platform
+4. **Where ArgoCD reads configuration** — the GitOps repository URL
 5. **Registry access** — optional; the token is never echoed or saved
 6. **Your configuration** — optional values file, chart directory, SOPS secrets
 7. **Ready to check** — probe from inside the cluster, or read-only
@@ -52,9 +54,9 @@ you see what the number will be checked against rather than just the number:
   > 300
 ```
 
-Questions the answers make irrelevant are not asked — no config repo when
-ArgoCD is off. On OpenShift the `*.apps` wildcard the cluster already owns is
-offered as the domain default.
+On OpenShift the `*.apps` wildcard the cluster already owns is offered as the
+domain default. ArgoCD GitOps is the sole supported delivery path; there is no
+direct Helm installation mode.
 
 Flags **pre-fill** the form rather than replacing it; `--no-prompt` skips it once
 every answer is supplied, and a non-terminal (a pipe, CI) never prompts at all:
@@ -66,6 +68,96 @@ budctl check --answers readiness.yaml --output json --strict   # CI
 
 `--save-answers readiness.yaml` records what you answered so a re-run after
 remediation asks nothing again.
+
+## GitOps installation
+
+`budctl install` is the guided installation path. It detects the current
+cluster's ingress and default StorageClass when possible, then asks only for
+the values it cannot infer: target repository and environment, domain and TLS,
+capacity, registry credentials, the initial administrator, additional age
+recipients, and whether to add Bud Studio. OpenSandbox and the ordinary Bud
+services are enabled by default; Bud Studio is the only optional add-on.
+When the cluster has no detectable default IngressClass, the installer uses
+`traefik`, matching the Bud chart default and the installation guide. OpenShift
+continues to use `openshift-default` with its non-Traefik chart path.
+
+The workflow is:
+
+1. Clone the target GitOps repository into a temporary workspace. If it is
+   empty, import only the shared base values from a pinned customer-neutral
+   `example-bud-foundry-config` commit—not deployed environments or secrets.
+2. Generate the environment values, ApplicationSet, service credentials, and a
+   new age identity. Secret values are SOPS-encrypted before they touch disk.
+3. Create a local commit on `main` by default, write the age identity to a
+   separate `0600` recovery file outside Git, then push the branch. After the
+   push succeeds, pause for a separate confirmation before changing the cluster.
+4. Install or upgrade ArgoCD through its OCI chart. On a fresh cluster the
+   installer establishes the ArgoCD CRDs first, then applies the complete
+   release and bootstrap Application. ArgoCD receives its own SOPS-encrypted
+   OCI repository credential, then syncs the platform in dependency order:
+   certificate management and CA injection first, OpenSandbox before Bud, and
+   optional Bud Studio last. Each Application must be both `Synced` and
+   `Healthy`; transient first-pass CRD failures are retried.
+
+Preview the resolved choices and generated paths without cloning, writing,
+pushing, or changing the cluster:
+
+```bash
+budctl install --plan --no-prompt \
+  --repo https://github.com/acme/bud-config.git \
+  --environment production --domain bud.example.com \
+  --ingress-class nginx --storage-class standard --tls self-signed \
+  --registry-user robot --registry-password "$BUD_REGISTRY_PASSWORD" \
+  --admin-email admin@example.com
+```
+
+Use `--age-recipient age1...` once per additional operator or device. Every
+generated SOPS file is decryptable by all listed recipients, while the newly
+generated private identity stays only in the recovery file and in ArgoCD's
+cluster Secret. For an SSH GitOps URL, `--repo-ssh-key /path/to/deploy-key`
+adds the deploy key only to the SOPS-encrypted ArgoCD values. HTTPS repositories
+must be readable by ArgoCD; use SSH when the target is private.
+
+Certificate choices mirror the supported installation profiles:
+
+- `acme-dns01` uses Cloudflare and requires `--cloudflare-token`;
+- `acme-http01` uses the selected ingress class;
+- `self-signed` creates the root and issuing CA in-cluster, enables Kyverno CA
+  injection, and exports the public root certificate beside the recovery key
+  after synchronization;
+- `internal-ca` imports `--issuer-ca-cert` and `--issuer-ca-key` into a
+  SOPS-encrypted cert-manager Secret, enables the same CA injection path, and
+  can append public roots from `--ca-bundle` to the trust-manager Bundle;
+- `external` omits cert-manager and assumes TLS terminates outside the cluster.
+
+For `self-signed` or `internal-ca`, `--ca-bundle /path/to/roots.pem` adds
+additional public trust anchors. The issuing private key is never rendered in
+plaintext or written to the recovery certificate file.
+
+The installer checkpoints every real run to
+`~/.config/budctl/install-state.age` (or the platform-equivalent user config
+directory). The choices and generated credentials are encrypted with a
+separate local age identity at `install-state.age.agekey`; both files are mode
+`0600` and neither belongs in Git. Re-running `budctl install` loads the last
+checkpoint, pre-fills the form, and preserves generated credentials. A flag or
+an edited form value can correct one bad choice and continue the same install.
+Use `--state /secure/path/name.age` for another checkpoint or `--fresh` to
+replace the current session. `--plan` may read a checkpoint but never creates
+or updates one.
+
+To continue from another workstation, securely copy both the encrypted state
+file and its adjacent `.agekey` file, then pass the copied state with `--state`
+and select a new local path with `--recovery-key`. Also retain the environment
+recovery key: it can decrypt the SOPS files in Git and is recreated from the
+checkpoint if its configured local copy is lost.
+Without either a checkpoint/key pair or an environment recovery identity,
+budctl deliberately cannot recover secret values from Git.
+
+`--no-sync` leaves the generated child Applications for manual synchronization.
+`--no-bootstrap` stops after the push, and `--no-push --no-bootstrap` keeps a
+local committed workspace for review. A non-interactive real installation also
+requires `--yes`, which accepts both the Git push and cluster installation
+confirmations.
 
 ## What you get back
 
@@ -117,13 +209,15 @@ and light backgrounds. `--no-color` or `NO_COLOR` turns colour off.
 Exit codes: `0` READY · `1` NOT READY · `2` risks under `--strict` · `3` budctl
 could not run.
 
-## What it needs on the host
+## What readiness checks need on the host
 
-A kubeconfig. That is all.
+A kubeconfig. That is all for `budctl check`. `budctl install` additionally uses
+the host's `git` client and its configured authentication to clone and push the
+target repository.
 
 `budctl` carries `client-go`, Helm's templating engine, SOPS and age as
 *libraries*, so there is **no `kubectl`, `helm`, `sops` or `age` binary** to
-install. The single exception is an `exec` credential plugin (`aws`, `gcloud`,
+install. The readiness exception is an `exec` credential plugin (`aws`, `gcloud`,
 `az`) when your kubeconfig uses one — `toolchain.exec-plugin` checks for it,
 because that is the one dependency the tool genuinely cannot absorb.
 
@@ -145,7 +239,7 @@ from manifest metadata, which is a few kilobytes.
 intend to hold, so the flow asks and derives every threshold from the answers:
 domain, TLS method, model storage, model count, concurrent deployments, GPU or
 CPU, retention, in-cluster or external data stores, ArgoCD and its config repo,
-OpenSandbox, optional registry credentials, an optional values file, and whether
+optional registry credentials, an optional values file, and whether
 to probe from inside the cluster.
 
 Registry credentials are **optional** — the robot account is normally issued

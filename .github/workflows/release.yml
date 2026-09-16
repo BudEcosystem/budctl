@@ -4,7 +4,7 @@ name: Release
 #
 #   1. bump VERSION in install.sh to the version you are about to cut
 #   2. commit that
-#   3. tag it v0.3.1 and push the tag
+#   3. tag it v0.4.0 and push the tag
 #
 # The installer pins its version rather than resolving "latest" from the GitHub
 # API at run time, because that API allows 60 requests an hour per IP and one
@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish, without the v (e.g. 0.3.1)'
+        description: 'Version to publish, without the v (e.g. 0.4.0)'
         required: true
         type: string
       dry_run:
@@ -120,8 +120,8 @@ jobs:
             echo "Or take the binary for your platform below, check it against \`SHA256SUMS\`, and \`gunzip\` it."
             echo "Air-gapped sites can mirror the artifacts internally and set \`BUDCTL_BASE_URL\`."
             echo
-            echo "budctl needs only a kubeconfig with a reachable API server. It carries client-go, Helm,"
-            echo "SOPS and age as libraries, so no kubectl, helm, sops or age binary has to be installed."
+            echo "budctl check needs only a kubeconfig; budctl install additionally uses the host git client."
+            echo "It carries client-go, Helm, SOPS and age as libraries, so no kubectl, helm, sops or age binary has to be installed."
             echo
             echo "## Checksums"
             echo

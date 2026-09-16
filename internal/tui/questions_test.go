@@ -17,13 +17,11 @@ func TestQuestionsRequireADomain(t *testing.T) {
 	}
 }
 
-// ArgoCD cannot sync without a values source, so the repo is mandatory under
-// ArgoCD and irrelevant without it.
-func TestQuestionsConfigRepoIsMandatoryOnlyUnderArgoCD(t *testing.T) {
+// ArgoCD cannot sync without a values source, so the repo is mandatory.
+func TestQuestionsConfigRepoIsMandatory(t *testing.T) {
 	q := newQuestions(testCtx(t), "")
-	q.ArgoCD = true
 	if q.validateConfigRepo("") == nil {
-		t.Fatal("empty config repo accepted with ArgoCD on")
+		t.Fatal("empty config repo accepted")
 	}
 	if q.validateConfigRepo("github.com/acme/cfg") == nil {
 		t.Fatal("a non-git URL was accepted")
@@ -32,10 +30,6 @@ func TestQuestionsConfigRepoIsMandatoryOnlyUnderArgoCD(t *testing.T) {
 		if err := q.validateConfigRepo(ok); err != nil {
 			t.Errorf("rejected %q: %v", ok, err)
 		}
-	}
-	q.ArgoCD = false
-	if err := q.validateConfigRepo(""); err != nil {
-		t.Fatalf("demanded a config repo for a direct-Helm install: %v", err)
 	}
 }
 
@@ -89,20 +83,16 @@ func TestQuestionsConsequencesFollowTheAnswer(t *testing.T) {
 	if !strings.Contains(q.probeConsequence(), "NOT VERIFIED") {
 		t.Error("read-only mode does not say probe checks go unverified")
 	}
-	q.OpenSandbox = true
-	if !strings.Contains(q.sandboxConsequence(), "aliyuncs.com") {
-		t.Error("OpenSandbox does not name the Alibaba registry it requires")
-	}
 }
 
 func TestQuestionsHideWhatTheAnswersMakeIrrelevant(t *testing.T) {
 	q := newQuestions(testCtx(t), "")
-	q.ArgoCD, q.RegistryUser, q.ValuesFile = false, "", ""
-	if !q.hideConfigRepo() || !q.hideRegistryToken() || !q.hideChartFiles() {
+	q.RegistryUser, q.ValuesFile = "", ""
+	if !q.hideRegistryToken() || !q.hideChartFiles() {
 		t.Fatal("irrelevant pages are shown")
 	}
-	q.ArgoCD, q.RegistryUser, q.ValuesFile = true, "robot$acme", "values.yaml"
-	if q.hideConfigRepo() || q.hideRegistryToken() || q.hideChartFiles() {
+	q.RegistryUser, q.ValuesFile = "robot$acme", "values.yaml"
+	if q.hideRegistryToken() || q.hideChartFiles() {
 		t.Fatal("relevant pages are hidden")
 	}
 }

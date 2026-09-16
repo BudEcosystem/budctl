@@ -58,8 +58,8 @@ func TestIntakeWalksEveryPageAndAsksEveryQuestion(t *testing.T) {
 	for _, want := range []string{
 		"Root domain", "How TLS certificates are obtained",
 		"Data stores", "Model storage (GiB)", "How many models", "Observability retention",
-		"Concurrent deployments", "GPU deployments expected?", "OpenSandbox",
-		"Install via ArgoCD?", "Config repository URL",
+		"Concurrent deployments", "GPU deployments expected?",
+		"Config repository URL",
 		"registry.bud.studio username", "Values file",
 		"Probe from inside the cluster?",
 	} {
@@ -169,8 +169,7 @@ func TestIntakeEveryFieldOnAPageIsVisible(t *testing.T) {
 	pages := map[string][]string{
 		"1 · Where Bud will live":   {"Root domain", "How TLS certificates are obtained"},
 		"2 · What it needs to hold": {"Data stores", "Model storage (GiB)", "How many models", "Observability retention (days)"},
-		"3 · What it will run":      {"Concurrent deployments", "GPU deployments expected?", "Enable the OpenSandbox code interpreter?"},
-		"4 · How it is delivered":   {"Install via ArgoCD?"},
+		"3 · What it will run":      {"Concurrent deployments", "GPU deployments expected?"},
 		"4 · Where ArgoCD reads":    {"Config repository URL"},
 		"5 · Registry access":       {"registry.bud.studio username"},
 		"6 · Your configuration":    {"Values file"},
