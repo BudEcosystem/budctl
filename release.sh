@@ -18,7 +18,7 @@ for p in $PLATFORMS; do
   echo "building $name"
   GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build \
     -trimpath \
-    -ldflags "-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT}" \
+    -ldflags "-s -w -X github.com/BudEcosystem/budctl/defaults.Version=${VERSION} -X github.com/BudEcosystem/budctl/defaults.Commit=${COMMIT}" \
     -o "$OUT/$name" ./cmd/budctl
   gzip -9 -k -f "$OUT/$name"
 done

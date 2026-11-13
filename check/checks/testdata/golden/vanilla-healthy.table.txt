@@ -1,0 +1,268 @@
+
+── platform ──────────────────────────────────────────────────
+  [SKIP ] platform.cluster-proxy             cluster-wide proxy object is OpenShift-specific
+  [INFO ] platform.distribution              kubernetes
+        server v1.30.0
+        api
+  [SKIP ] platform.openshift-version         not an OpenShift cluster
+
+── config ────────────────────────────────────────────────────
+  [SKIP ] config.dry-run                     no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+  [SKIP ] config.fail-closed                 no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+  [SKIP ] config.placeholders                no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+  [SKIP ] config.public-defaults             no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+  [SKIP ] config.render                      no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+  [SKIP ] config.required-values             no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+  [SKIP ] config.valkey-indexes              no --values: this group judges the values the operator will hand ArgoCD, and none were supplied
+
+── cluster ───────────────────────────────────────────────────
+  [PASS ] cluster.admission-policy           no admission policy in enforce mode conflicts with the stack's hostPath and privileged pods
+        SecurityContextConstraints were not inspected: they do not exist on this distribution
+        no namespace carries a pod-security.kubernetes.io/enforce label
+        · namespace pod-security.kubernetes.io/enforce labels (0 namespaces), plus ClusterPolicies and Gatekeeper constraints in enforce mode
+          no namespace carries a pod-security.kubernetes.io/enforce label
+        does not prove: budctl reads namespace labels and policy objects; it cannot read the API server's AdmissionConfiguration file, so a cluster-wide PodSecurity default set in the API server flags and not mirrored onto namespaces stays invisible. Individual manifests are not simulated against admission
+  [PASS ] cluster.api-groups                 all 8 required API groups served
+        apps/v1
+        batch/v1
+        networking.k8s.io/v1
+        autoscaling/v2
+        storage.k8s.io/v1
+        discovery.k8s.io/v1
+        rbac.authorization.k8s.io/v1
+        apiextensions.k8s.io/v1
+        · GET /apis (discovery), filtered to the groupVersions the chart renders
+          served:
+            apps/v1
+            batch/v1
+            networking.k8s.io/v1
+            autoscaling/v2
+            storage.k8s.io/v1
+            discovery.k8s.io/v1
+            rbac.authorization.k8s.io/v1
+            apiextensions.k8s.io/v1
+          missing:
+            
+        does not prove: discovery lists the groups; it does not prove the backing controllers are running — an HPA needs metrics-server (components.metrics-server), an Ingress needs a controller (components.ingress)
+  [BLOCK] cluster.installer-rbac             this identity cannot create namespaces, customresourcedefinitions.apiextensions.k8s.io, clusterroles.rbac.authorization.k8s.io, clusterrolebindings.rbac.authorization.k8s.io, applicationsets.argoproj.io: the bootstrap stops at the first object it applies and nothing installs
+        namespaces — every Application syncs with CreateNamespace=true
+        customresourcedefinitions.apiextensions.k8s.io — Dapr, cert-manager, CNPG and ArgoCD each register CRDs
+        clusterroles.rbac.authorization.k8s.io — the bundled operators install cluster-scoped RBAC
+        clusterrolebindings.rbac.authorization.k8s.io — the bundled operators bind that RBAC to their ServiceAccounts
+        applicationsets.argoproj.io — the install is two ApplicationSets applied by hand
+        → bind the install identity to a role that grants them — for a POC, `kubectl create clusterrolebinding budctl-installer --clusterrole=cluster-admin --user=<identity>`; for a scoped role, grant create on namespaces, customresourcedefinitions, clusterroles, clusterrolebindings and applicationsets.argoproj.io
+        · SelfSubjectAccessReview for the current kubeconfig identity (the API behind `kubectl auth can-i`)
+          create namespaces: denied
+          create customresourcedefinitions.apiextensions.k8s.io: denied
+          create clusterroles.rbac.authorization.k8s.io: denied
+          create clusterrolebindings.rbac.authorization.k8s.io: denied
+          create applicationsets.argoproj.io: denied
+  [SKIP ] cluster.server-side-apply          namespace "default" does not exist, so there was nowhere to send a harmless dry-run apply; re-run with a kubeconfig whose context has a default namespace
+        · PATCH /api/v1/namespaces/default/configmaps/budctl-server-side-apply-probe?dryRun=All (Content-Type: application/apply-patch+yaml)
+          configmaps "budctl-server-side-apply-probe" not found
+  [PASS ] cluster.version                    Kubernetes v1.30.0 ≥ 1.25
+        api
+        · GET /version
+          v1.30.0
+        does not prove: a supported API version says nothing about the CNI, the CSI drivers or the container runtime on the nodes
+
+── nodes ─────────────────────────────────────────────────────
+  [INFO ] nodes.accelerators                 no node advertises an accelerator; the platform runs CPU-only, which is supported
+  [PASS ] nodes.architecture                 all 3 nodes are linux/amd64
+        · architecture reported by each kubelet
+          node/n1 status.nodeInfo.architecture=amd64
+          node/n2 status.nodeInfo.architecture=amd64
+          node/n3 status.nodeInfo.architecture=amd64
+  [PASS ] nodes.capacity                     24.0 cores and 96.0GiB free against a requirement of 6.0 cores and 33.0GiB
+        · allocatable (not capacity — capacity includes what the kubelet and system reserve) minus pod requests across all namespaces
+          node/n1 allocatable 8.0 cores / 32.0GiB − requested 0.0 cores / 0B = free 8.0 cores / 32.0GiB
+          node/n2 allocatable 8.0 cores / 32.0GiB − requested 0.0 cores / 0B = free 8.0 cores / 32.0GiB
+          node/n3 allocatable 8.0 cores / 32.0GiB − requested 0.0 cores / 0B = free 8.0 cores / 32.0GiB
+          cluster free: 24.0 cores / 96.0GiB
+          required: 6.0 cores / 33.0GiB  (profile base 6.0 cores / 33 GiB × 1.00 for 3 concurrent deployments)
+        does not prove: totals only: it does not prove any single pod fits on a single node (nodes.largest-pod), and it excludes the model runtime pods themselves, which budsim sizes at deploy time and which are far larger than the platform
+  [RISK ] nodes.control-plane-label          no node carries bud.studio/control-plane=true, so every chart's preferred nodeAffinity (weight 75) matches nothing and platform pods land wherever there is room — including on GPU nodes meant for models
+        the affinity is preferred, not required, so the install still completes; placement is what degrades
+        → label the node(s) that should host the platform: kubectl label node <name> bud.studio/control-plane=true
+  [PASS ] nodes.count                        3 schedulable nodes
+        counted: n1, n2, n3
+        does not prove: node count says nothing about the size of those nodes — nodes.capacity and nodes.largest-pod measure that
+  [PASS ] nodes.eviction-pressure            no node is under the imagefs.available<15% eviction threshold
+        · imageFs available/capacity against the kubelet default eviction signal imagefs.available<15%, plus the DiskPressure condition
+          node/n1 imageFs 50.0% free (200.0GiB of 400.0GiB), DiskPressure=false
+          node/n2 imageFs 50.0% free (200.0GiB of 400.0GiB), DiskPressure=false
+          node/n3 imageFs 50.0% free (200.0GiB of 400.0GiB), DiskPressure=false
+        does not prove: it reads the image filesystem only: memory.available and nodefs.inodesFree can still trigger eviction, and a node just above the threshold crosses it as soon as the install starts pulling
+  [PASS ] nodes.imagefs                      all 3 nodes have at least 80 GiB free on the image filesystem
+        · kubelet /stats/summary node.runtime.imageFs.availableBytes, via the API server node proxy
+          node/n1 imageFs available 200.0GiB of 400.0GiB (used 0B)
+          node/n2 imageFs available 200.0GiB of 400.0GiB (used 0B)
+          node/n3 imageFs available 200.0GiB of 400.0GiB (used 0B)
+        does not prove: it does not cover the model runtime images (bud-runtime-cuda/cpu/hpu), which land on whichever node runs a model and are substantially larger than the platform's own images
+  [PASS ] nodes.largest-pod                  3 of 3 nodes can hold semantic-router (6.0GiB, 1.0 cores)
+        fits on: n1, n2, n3
+        · per-node free allocatable against the largest single pod request
+          node/n1 free 8.0 cores / 32.0GiB → fits: true
+          node/n2 free 8.0 cores / 32.0GiB → fits: true
+          node/n3 free 8.0 cores / 32.0GiB → fits: true
+          largest single pod: semantic-router requests 1.0 cores / 6.0GiB (profile floor, no --values render available)
+        does not prove: it does not prove the scheduler will choose that node: anti-affinity, topology spread and the model runtime pods competing for the same node can still leave a pod Pending
+  [PASS ] nodes.pod-slots                    330 pod slots free against about 63 expected
+        · allocatable.pods per node (the kubelet max-pods ceiling) minus pods already scheduled there
+          node/n1 allocatable pods 110, running 0, free 110
+          node/n2 allocatable pods 110, running 0, free 110
+          node/n3 allocatable pods 110, running 0, free 110
+          free slots: 330 of 330
+          expected new pods: 63 (an estimate of ~3 pods per ApplicationSet component plus one runtime pod per concurrent deployment; run with --values for the rendered count)
+        does not prove: the expected count is an estimate of ~3 pods per ApplicationSet component plus one runtime pod per concurrent deployment; run with --values for the rendered count; DaemonSets added later, model runtime pods and per-deployment sidecars each consume further slots
+  [PASS ] nodes.ready                        all 3 nodes are Ready and uncordoned
+        schedulable: n1, n2, n3
+        · Ready condition and spec.unschedulable on 3 nodes
+          node/n1 Ready=true cordoned=false arch=amd64 taints=none
+          node/n2 Ready=true cordoned=false arch=amd64 taints=none
+          node/n3 Ready=true cordoned=false arch=amd64 taints=none
+        does not prove: a Ready kubelet does not prove the node can pull images or has disk left for them — nodes.imagefs measures that separately
+  [PASS ] nodes.tolerations                  3 of 3 Ready nodes are schedulable without a toleration
+        · spec.taints with effect NoSchedule or NoExecute on every Ready node
+          node/n1 taints: none
+          node/n2 taints: none
+          node/n3 taints: none
+        does not prove: it does not prove the untainted nodes have room — that is nodes.capacity — nor that a PodSecurity or SCC policy will admit the pods
+
+── storage ───────────────────────────────────────────────────
+  [RISK ] storage.capacity                   provisionable capacity is UNVERIFIED for standard (rancher.io/local-path): the driver publishes no CSIStorageCapacity, there is no OpenEBS DiskPool, and the class is not node-local — required 557 GiB = 200 GiB model weights + 58 GiB platform claims + 269 GiB in-cluster data stores + 30 GiB traces and metrics (30d retention), estimated could be short and the install would fail mid-sync
+        budctl will not guess: an unmeasured backend is reported as unknown, not as sufficient
+        → check the backend by hand before installing — `vgs` for LVM, `kubectl get diskpool -A` for Mayastor, the cloud console quota for EBS/Azure Disk — and confirm it holds 557 GiB
+  [BLOCK] storage.csi-healthy                nothing is registered to provision standard (rancher.io/local-path): there is no CSIDriver object and no pod that answers to that provisioner, so its claims are never acted on
+        a class can be created before its driver; the claim then waits forever with no event other than the provisioner name
+        → install the CSI driver the class names, or repoint the values at a class whose driver is installed: kubectl get csidrivers
+  [PASS ] storage.default-class              default StorageClass "standard" (rancher.io/local-path)
+        claims relying on it: microservices.budcache.persistence.className, storage.budappStaticDir.className, storage.budevalDataset.className, storage.budmodelAddDir.className, storage.budmodelRegistry.className
+        volumeBindingMode: (unset)
+        · kubectl get storageclass
+          standard	provisioner=rancher.io/local-path	default=true	expansion=true	binding=(unset)
+        does not prove: that a claim in this class binds — only storage.provision exercises the provisioner — nor that it has the capacity storage.capacity sizes
+  [PASS ] storage.expansion                  expansion does not apply: every class backing a growth-prone volume is node-local, where the node's disk — not a resizable volume — is the ceiling
+        node-local, where allowVolumeExpansion does not apply — each volume is bounded by the disk of the one node it landed on, not by a size that can be resized (storage.capacity measures that disk):
+        standard (rancher.io/local-path) backs storage.budmodelAddDir.className, storage.budmodelRegistry.className
+        growth-prone volumes: standard is the default, which backs storage.budmodelAddDir.className, storage.budmodelRegistry.className
+        · kubectl get storageclass -o custom-columns=NAME:.metadata.name,EXPANSION:.allowVolumeExpansion
+          standard	provisioner=rancher.io/local-path	default=true	expansion=true	binding=(unset)
+        does not prove: that the volumes have room to grow — a node-local volume never moves to a roomier node, and it shares that node's filesystem with the image store; storage.capacity is what measures the free space
+  [PASS ] storage.host-prereqs               no candidate StorageClass carries a parameter that implies host-level state
+        candidates: standard (the default, relied on by 5 claims)
+        does not prove: that the nodes are prepared: a driver can require host state its parameters never name — a kernel module, a device, a mount
+  [SKIP ] storage.named-classes              no StorageClass is named in the values (the chart's own defaults); every claim relies on the default, which storage.default-class covers
+  [SKIP ] storage.provision                  probes are disabled (--no-probe): no claim was created, so provisioning is not confirmed working
+  [SKIP ] storage.rwx                        no chart render: pass --chart and --values to check the access modes the chart asks for
+  [SKIP ] storage.shared-rwo                 no chart render: pass --chart and --values to check which workloads share a claim
+
+── components ────────────────────────────────────────────────
+  [INFO ] components.appset-conflicts        none of the 20 ApplicationSet components is installed; cluster-addons and prod-apps install all of them, so their absence is not a readiness failure
+        argocd: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        cert-manager: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        clickhouse: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        dapr: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        harbor: absent — installed by the prod-apps ApplicationSet, not a prerequisite
+        kafka: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        keel: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        keycloak: absent — installed by the prod-apps ApplicationSet, not a prerequisite
+        kyverno: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        mongodb: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        openebs: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        opensandbox: absent — installed by the prod-apps ApplicationSet, not a prerequisite
+        otel: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        postgres: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        seaweedfs: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        signoz: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        valkey: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        valkey-cluster: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        velero: absent — installed by the cluster-addons ApplicationSet, not a prerequisite
+        bud: absent — installed by the prod-apps ApplicationSet, not a prerequisite
+        · namespace, CRD and workload inventory for the components installed by cluster-addons and prod-apps
+          argocd          absent
+          cert-manager    absent
+          clickhouse      absent
+          dapr            absent
+          harbor          absent
+          kafka           absent
+          keel            absent
+          keycloak        absent
+          kyverno         absent
+          mongodb         absent
+          openebs         absent
+          opensandbox     absent
+          otel            absent
+          postgres        absent
+          seaweedfs       absent
+          signoz          absent
+          valkey          absent
+          valkey-cluster  absent
+          velero          absent
+          bud             absent
+        does not prove: absence is not checked for, only reported: none of these components is a prerequisite (FRD-020 §3.1). Version comparison covers only the components whose ApplicationSet pin budctl carries; for the rest the installed version is reported with no compatibility claim. Ownership is read from labels on the component's own workloads, not from Helm release state.
+  [BLOCK] components.dns                     1 of 1 cluster-DNS pod is in kube-system not ready (Running): in-cluster name resolution is failing or one node outage away from it, and every Dapr call, database connection and object-store request resolves through them
+        coredns-1 0/0 Running
+        → `kubectl -n kube-system describe pod coredns-1` and `kubectl -n kube-system logs coredns-1` — a CrashLooping CoreDNS is usually a bad Corefile, an unreachable upstream resolver in the node's /etc/resolv.conf, or a forwarding loop back into itself. Fix it before installing; nothing in the ApplicationSets can.
+        · kubectl -n kube-system get pods (cluster DNS)
+          coredns-1 0/0 Running
+  [BLOCK] components.ingress                 no running controller could be matched to the IngressClass (traefik (traefik.io/ingress-controller)): if nothing is serving it, every Ingress the install creates stays unclaimed and no hostname the chart publishes answers
+        → check the controller is running (`kubectl get pods -A | grep -i ingress`). budctl ties a class to its controller by name, because spec.controller is a vendor identifier with no API link to a workload — so a controller whose pods carry none of those names, or one that runs outside the cluster such as a cloud load-balancer controller, is not matched here, and `domains.inbound-80` / `domains.inbound-443` are what prove that path instead.
+        · each IngressClass, and the ready endpoints of the workload its spec.controller names
+          ingressclass/traefik controller=traefik.io/ingress-controller -> no workload matched (searched for traefik)
+  [PASS ] components.metrics-server          metrics.k8s.io/v1beta1 is served and Available
+        backing service: local (served by the API server itself)
+        · kubectl get apiservice v1beta1.metrics.k8s.io -o jsonpath='{.status.conditions}'
+          Available=True seeded
+        does not prove: an Available APIService does not prove metrics flow for every node: a node whose kubelet the metrics backend cannot scrape still reports `<unknown>` to an HPA, and budctl does not query the metrics API itself.
+
+── gpu ───────────────────────────────────────────────────────
+  [SKIP ] gpu.capacity                       no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports
+  [SKIP ] gpu.device-plugin                  no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports
+  [SKIP ] gpu.nodes                          no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports
+  [SKIP ] gpu.operator-functional            probes are disabled, so the driver, device-plugin and runtime chain was NOT exercised and is not confirmed working
+  [SKIP ] gpu.runtime-class                  no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports
+  [SKIP ] gpu.sharing                        no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports
+
+Verdict: NOT READY
+16 passed · 4 blocking · 2 risk · 20 not verified
+
+BLOCKING — the install will fail
+  ✗ cluster.installer-rbac
+    this identity cannot create namespaces, customresourcedefinitions.apiextensions.k8s.io, clusterroles.rbac.authorization.k8s.io, clusterrolebindings.rbac.authorization.k8s.io, applicationsets.argoproj.io: the bootstrap stops at the first object it applies and nothing installs
+    → bind the install identity to a role that grants them — for a POC, `kubectl create clusterrolebinding budctl-installer --clusterrole=cluster-admin --user=<identity>`; for a scoped role, grant create on namespaces, customresourcedefinitions, clusterroles, clusterrolebindings and applicationsets.argoproj.io
+  ✗ components.dns
+    1 of 1 cluster-DNS pod is in kube-system not ready (Running): in-cluster name resolution is failing or one node outage away from it, and every Dapr call, database connection and object-store request resolves through them
+    → `kubectl -n kube-system describe pod coredns-1` and `kubectl -n kube-system logs coredns-1` — a CrashLooping CoreDNS is usually a bad Corefile, an unreachable upstream resolver in the node's /etc/resolv.conf, or a forwarding loop back into itself. Fix it before installing; nothing in the ApplicationSets can.
+  ✗ components.ingress
+    no running controller could be matched to the IngressClass (traefik (traefik.io/ingress-controller)): if nothing is serving it, every Ingress the install creates stays unclaimed and no hostname the chart publishes answers
+    → check the controller is running (`kubectl get pods -A | grep -i ingress`). budctl ties a class to its controller by name, because spec.controller is a vendor identifier with no API link to a workload — so a controller whose pods carry none of those names, or one that runs outside the cluster such as a cloud load-balancer controller, is not matched here, and `domains.inbound-80` / `domains.inbound-443` are what prove that path instead.
+  ✗ storage.csi-healthy
+    nothing is registered to provision standard (rancher.io/local-path): there is no CSIDriver object and no pod that answers to that provisioner, so its claims are never acted on
+    → install the CSI driver the class names, or repoint the values at a class whose driver is installed: kubectl get csidrivers
+
+RISKS — installs, but a capability is degraded
+  ! nodes.control-plane-label
+    no node carries bud.studio/control-plane=true, so every chart's preferred nodeAffinity (weight 75) matches nothing and platform pods land wherever there is room — including on GPU nodes meant for models
+  ! storage.capacity
+    provisionable capacity is UNVERIFIED for standard (rancher.io/local-path): the driver publishes no CSIStorageCapacity, there is no OpenEBS DiskPool, and the class is not node-local — required 557 GiB = 200 GiB model weights + 58 GiB platform claims + 269 GiB in-cluster data stores + 30 GiB traces and metrics (30d retention), estimated could be short and the install would fail mid-sync
+
+NOT VERIFIED — 20 checks did not run, for 9 reasons; these are not passes
+  · config.dry-run, config.fail-closed, config.placeholders, config.public-defaults, config.render, config.required-values, config.valkey-indexes
+    no --values
+  · gpu.capacity, gpu.device-plugin, gpu.nodes, gpu.runtime-class, gpu.sharing
+    no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports
+  · storage.rwx, storage.shared-rwo
+    no chart render
+  · cluster.server-side-apply
+    namespace "default" does not exist, so there was nowhere to send a harmless dry-run apply; re-run with a kubeconfig whose context has a default namespace
+  · gpu.operator-functional
+    probes are disabled, so the driver, device-plugin and runtime chain was NOT exercised and is not confirmed working
+  · platform.cluster-proxy
+    cluster-wide proxy object is OpenShift-specific
+  · platform.openshift-version
+    not an OpenShift cluster
+  · storage.named-classes
+    no StorageClass is named in the values (the chart's own defaults); every claim relies on the default, which storage.default-class covers
+  · storage.provision
+    probes are disabled (--no-probe): no claim was created, so provisioning is not confirmed working

@@ -1,0 +1,62 @@
+kyverno:
+  crds:
+    migration:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 75
+            preference:
+              matchExpressions:
+                - key: bud.studio/control-plane
+                  operator: In
+                  values:
+                    - "true"
+  webhooksCleanup:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+  admissionController:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+  backgroundController:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+  cleanupController:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+  reportsController:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"

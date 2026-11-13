@@ -1,0 +1,46 @@
+trust-manager:
+  enabled: true
+
+cert-manager:
+  ingressShim:
+    defaultIssuerName: selfsigned-ca
+
+certificates:
+  selfsigned-ca:
+    isCA: true
+    duration: 87600h # 10 years
+    renewBefore: 720h # 3 days
+    subject:
+      organizations:
+        - selfsigned-ca
+    commonName: selfsigned-ca
+    secretName: selfsigned-ca-root
+    privateKey:
+      algorithm: ECDSA
+      size: 256
+    issuerRef:
+      name: selfsigned
+      kind: ClusterIssuer
+      group: cert-manager.io
+
+issuers:
+  selfsigned:
+    selfSigned: {}
+  selfsigned-ca:
+    ca:
+      secretName: selfsigned-ca-root
+
+bundles:
+  ca-pemstore:
+    sources:
+      - useDefaultCAs: true
+      - secret:
+          name: "selfsigned-ca-root"
+          key: "tls.crt"
+    target:
+      configMap:
+        key: "cafebabe-ca.pem"
+      additionalFormats:
+        pkcs12:
+          key: "cafebabe-ca.p12"
+          password: ""

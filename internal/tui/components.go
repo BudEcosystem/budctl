@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 // card is the basic building block: a rounded box whose border carries the
@@ -57,7 +57,7 @@ func wrapTo(s string, width int) string {
 // how much is missing; a sufficient figure is green. The bar fills to the need,
 // so a quantity with headroom reads as a full bar rather than a sliver of a
 // huge denominator.
-func gaugeBar(g engine.Gauge, width int) string {
+func gaugeBar(g check.Gauge, width int) string {
 	labelW := 22
 	if width < 60 {
 		labelW = 14

@@ -1,0 +1,28 @@
+users:
+  bud_novu:
+    db: bud_novu
+    password: bud_novu
+    roles:
+      - name: dbOwner
+        db: bud_novu
+psmdb-operator:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 75
+        preference:
+          matchExpressions:
+            - key: bud.studio/control-plane
+              operator: In
+              values:
+                - "true"

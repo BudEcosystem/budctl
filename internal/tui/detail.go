@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 // The detail view is for working through one finding: a status-filtered,
@@ -23,16 +23,16 @@ import (
 
 var detailTabs = []struct {
 	label string
-	keep  func(engine.Result) bool
+	keep  func(check.Result) bool
 }{
-	{"All", func(engine.Result) bool { return true }},
-	{"Blocking", func(r engine.Result) bool { return r.IsBlocker() }},
-	{"Risks", func(r engine.Result) bool { return r.IsRisk() }},
-	{"Not verified", func(r engine.Result) bool { return r.State == engine.StateSkip }},
-	{"Passed", func(r engine.Result) bool { return r.State == engine.StatePass }},
+	{"All", func(check.Result) bool { return true }},
+	{"Blocking", func(r check.Result) bool { return r.IsBlocker() }},
+	{"Risks", func(r check.Result) bool { return r.IsRisk() }},
+	{"Not verified", func(r check.Result) bool { return r.State == check.StateSkip }},
+	{"Passed", func(r check.Result) bool { return r.State == check.StatePass }},
 }
 
-type resultItem struct{ r engine.Result }
+type resultItem struct{ r check.Result }
 
 func (i resultItem) FilterValue() string { return i.r.ID + " " + i.r.Summary }
 
@@ -83,7 +83,7 @@ func newResultList() list.Model {
 // on the findings that matter rather than on alphabetical order.
 func (m *Model) tabItems(tab int) []list.Item {
 	rank := map[string]int{"BLOCK": 0, "RISK": 1, "SKIP": 2, "INFO": 3, "PASS": 4}
-	rs := []engine.Result{}
+	rs := []check.Result{}
 	for _, r := range m.report.Results {
 		if detailTabs[tab].keep(r) {
 			rs = append(rs, r)
@@ -126,11 +126,11 @@ func (m *Model) layoutDetail() {
 	m.refreshDetailPane()
 }
 
-func (m *Model) selected() (engine.Result, bool) {
+func (m *Model) selected() (check.Result, bool) {
 	if it, ok := m.list.SelectedItem().(resultItem); ok {
 		return it.r, true
 	}
-	return engine.Result{}, false
+	return check.Result{}, false
 }
 
 func (m *Model) refreshDetailPane() {
@@ -146,7 +146,7 @@ func (m *Model) refreshDetailPane() {
 // recordCard renders one check's complete record. Its border carries the
 // status, and "does not prove" is kept — a pass is never presented as more than
 // it verified.
-func recordCard(r engine.Result, width int) string {
+func recordCard(r check.Result, width int) string {
 	inner := width - 4
 	st := r.Status()
 	parts := []string{badge(st) + "  " + sMuted.Render(r.Group), sText.Render(wrapTo(r.Summary, inner))}

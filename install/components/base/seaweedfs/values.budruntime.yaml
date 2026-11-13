@@ -1,0 +1,93 @@
+ingress:
+  enabled: true
+  https: true
+  host: s3.bud.lan
+
+identity:
+  bud:
+    accessKey: "bud"
+    secretKey: "bud"
+
+policy:
+  bud:
+    identities:
+      - bud
+    statements:
+      - effect: Allow
+        actions:
+          - "s3:*"
+        resources:
+          - "bud-novu"
+          - "bud-novu/*"
+          - "bud-model-info"
+          - "bud-model-info/*"
+          - "bud-models-registry"
+          - "bud-models-registry/*"
+          - "bud-eval-artifacts"
+          - "bud-eval-artifacts/*"
+          - "bud-terraform-state"
+          - "bud-terraform-state/*"
+
+buckets:
+  bud-novu:
+    reclaimPolicy: Delete
+    versioning: "Off"
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 1Gi
+      enforce: true
+  bud-model-info:
+    reclaimPolicy: Delete
+    versioning: "Off"
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 1Gi
+      enforce: true
+  bud-models-registry:
+    reclaimPolicy: Delete
+    versioning: "Off"
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 60Gi
+      enforce: true
+  bud-eval-artifacts:
+    reclaimPolicy: Delete
+    versioning: "Off"
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 10Gi
+      enforce: true
+  bud-terraform-state:
+    reclaimPolicy: Retain
+    versioning: Enabled
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 1Gi
+      enforce: true
+
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 75
+        preference:
+          matchExpressions:
+            - key: bud.studio/control-plane
+              operator: In
+              values:
+                - "true"
+seaweedfs-operator:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 // A report saved from the interactive view is the one an operator attaches to a
@@ -18,15 +18,15 @@ func TestInteractiveRunReportNamesTheBuildAndTheCluster(t *testing.T) {
 	c := testCtx(t)
 	c.Opts.BudctlVersion = "0.3.1-test"
 	c.Answers.Domain = "bud.example.com"
-	c.Platform.Distribution = engine.DistVanilla
+	c.Platform.Distribution = check.DistVanilla
 	c.Platform.Version = "v1.36.3+k3s1"
 
 	// One offline check with no dependencies: the run finishes at once and
 	// needs neither a cluster nor a network.
-	m := New(context.Background(), c, engine.Selection{Only: []string{"toolchain.age-identity"}}, true, "")
+	m := New(context.Background(), c, check.Selection{Only: []string{"toolchain.age-identity"}}, true, "")
 	_ = m.startRun()
 
-	var rep engine.Report
+	var rep check.Report
 	deadline := time.After(30 * time.Second)
 	for done := false; !done; {
 		select {

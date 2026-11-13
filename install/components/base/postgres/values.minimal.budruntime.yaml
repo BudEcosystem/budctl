@@ -1,0 +1,3 @@
+poolers:
+  pooler-rw-txn:
+    instances: 1

@@ -1,0 +1,103 @@
+package install
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/BudEcosystem/budctl/install/spec"
+)
+
+func TestStateRoundTripIsEncryptedAndPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "install-state.age")
+	want := State{
+		Phase: "generated",
+		Spec: spec.Spec{
+			Environment:      "production",
+			TargetRepo:       "https://example.com/config.git",
+			RegistryPassword: "registry-secret-marker",
+			IssuerCACertPEM:  "issuer-certificate-marker",
+			IssuerCAKeyPEM:   "issuer-private-key-marker",
+		},
+		Secrets: &spec.GeneratedSecrets{
+			AgeIdentity:   "AGE-SECRET-KEY-STATE-MARKER",
+			AgeRecipient:  "age1recipient",
+			AdminPassword: "admin-secret-marker",
+			Values:        map[string]string{"postgres": "database-secret-marker"},
+		},
+	}
+	if err := SaveState(path, want); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"registry-secret-marker", "issuer-certificate-marker", "issuer-private-key-marker", "admin-secret-marker", "database-secret-marker", "AGE-SECRET-KEY-STATE-MARKER"} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(body, []byte(secret)) {
+			t.Fatalf("encrypted state contains plaintext secret %q", secret)
+		}
+	}
+	for _, privatePath := range []string{path, StateKeyPath(path)} {
+		info, err := os.Stat(privatePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("%s mode = %o, want 600", privatePath, got)
+		}
+	}
+
+	got, found, err := LoadState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("saved installer state was not found")
+	}
+	if got.Phase != want.Phase || !reflect.DeepEqual(got.Spec, want.Spec) || !reflect.DeepEqual(got.Secrets, want.Secrets) {
+		t.Fatalf("loaded state differs from saved state\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestEnsureRecoveryKeyCanResume(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "recovery.agekey")
+	key := []byte("same-key\n")
+	if err := EnsureRecoveryKey(path, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureRecoveryKey(path, key); err != nil {
+		t.Fatalf("matching recovery key rejected on resume: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureRecoveryKey(path, key); err != nil {
+		t.Fatalf("lost recovery key was not recreated from cached credentials: %v", err)
+	}
+	if err := EnsureRecoveryKey(path, []byte("different-key\n")); err == nil {
+		t.Fatal("mismatched recovery key was accepted")
+	}
+}
+
+func TestEnsureCACertificateDoesNotReplaceTrustAnchor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bud-ca.crt")
+	if err := EnsureCACertificate(path, []byte("first certificate\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureCACertificate(path, []byte("first certificate\n")); err != nil {
+		t.Fatalf("matching CA was rejected: %v", err)
+	}
+	if err := EnsureCACertificate(path, []byte("different certificate\n")); err == nil {
+		t.Fatal("existing trust anchor was replaced without an error")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("CA mode = %o, want 644", info.Mode().Perm())
+	}
+}

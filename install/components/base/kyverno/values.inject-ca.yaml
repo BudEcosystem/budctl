@@ -1,0 +1,49 @@
+# Inject the trust-manager CA bundle into Bud workloads when budctl uses the
+# bundled self-signed issuer. This policy is not selected for ACME or externally
+# terminated TLS installations.
+clusterPolicies:
+  inject-ca:
+    background: false
+    rules:
+      - name: inject-ca
+        match:
+          any:
+            - resources:
+                kinds:
+                  - Pod
+        preconditions:
+          all:
+            - key: "{{ request.namespace }}"
+              operator: AnyIn
+              value:
+                - "bud"
+                - "bud-*"
+        mutate:
+          foreach:
+            - list: request.object.spec.containers
+              patchStrategicMerge:
+                spec:
+                  volumes:
+                    - name: ca-pemstore
+                      configMap:
+                        name: ca-pemstore
+                  containers:
+                    - name: "{{ element.name }}"
+                      volumeMounts:
+                        - name: ca-pemstore
+                          mountPath: /etc/ssl/certs/cafebabe-ca.pem
+                          subPath: cafebabe-ca.pem
+                          readOnly: true
+                      env:
+                        - name: SSL_CERT_FILE
+                          value: /etc/ssl/certs/cafebabe-ca.pem
+                        - name: NODE_EXTRA_CA_CERTS
+                          value: /etc/ssl/certs/cafebabe-ca.pem
+                        - name: REQUESTS_CA_BUNDLE
+                          value: /etc/ssl/certs/cafebabe-ca.pem
+                        - name: PIP_CERT
+                          value: /etc/ssl/certs/cafebabe-ca.pem
+                        - name: CURL_CA_BUNDLE
+                          value: /etc/ssl/certs/cafebabe-ca.pem
+                        - name: GIT_SSL_CAINFO
+                          value: /etc/ssl/certs/cafebabe-ca.pem

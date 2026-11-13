@@ -7,7 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 func detailModel(t *testing.T, w, h int) *Model {
@@ -102,9 +102,9 @@ func TestDetailNarrowTerminalOpensTheRecordOnEnter(t *testing.T) {
 // card wraps rather than losing its tail — the unit after a figure is exactly
 // the part a truncation used to drop ("of 187.9…").
 func TestDetailEvidenceWrapsInsteadOfTruncating(t *testing.T) {
-	r := engine.Result{ID: "nodes.imagefs", Group: "nodes", State: engine.StateFail, Severity: engine.Block,
+	r := check.Result{ID: "nodes.imagefs", Group: "nodes", State: check.StateFail, Severity: check.Block,
 		Summary: "1 node is below the floor",
-		Evidence: []engine.Evidence{{What: "kubelet /stats/summary",
+		Evidence: []check.Evidence{{What: "kubelet /stats/summary",
 			Output: "node/bud-hetzner-ax52-0 imageFs available 46.7GiB of 187.9GiB capacity-END\nsecond line"}}}
 	card := stripANSI(recordCard(r, 60))
 	flat := strings.Join(strings.Fields(card), " ")

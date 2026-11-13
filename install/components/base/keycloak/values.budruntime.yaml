@@ -1,0 +1,176 @@
+ingress:
+  enabled: true
+  https: true
+  host: auth.bud.lan
+
+image: registry.bud.studio/runtime/keycloak-budtheme:0.2.2
+imagePullSecrets:
+  - name: registry.bud.studio
+
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 75
+        preference:
+          matchExpressions:
+            - key: bud.studio/control-plane
+              operator: In
+              values:
+                - "true"
+
+realms:
+  keycloak-bud-keycloak-realm:
+    clients:
+      budadmin-web:
+        enabled: true
+        protocol: openid-connect
+        directAccessGrantsEnabled: true
+        standardFlowEnabled: true
+        implicitFlowEnabled: false
+        publicClient: false
+        serviceAccountsEnabled: false
+        secret: budadmin-web
+        attributes:
+          post.logout.redirect.uris: https://admin.bud.lan
+        protocolMappers:
+          - config:
+              access.token.claim: "true"
+              id.token.claim: "false"
+              included.client.audience: budadmin-web
+            name: aud-budadmin-web
+            protocol: openid-connect
+            protocolMapper: oidc-audience-mapper
+        redirectUris:
+          - https://app.bud.lan/auth/redirect/callback
+        webOrigins:
+          - +
+      budcustomer-web:
+        attributes:
+          post.logout.redirect.uris: https://admin.bud.lan##https://customer.bud.lan##https://playground.bud.lan
+        directAccessGrantsEnabled: true
+        enabled: true
+        implicitFlowEnabled: false
+        protocol: openid-connect
+        protocolMappers:
+          - config:
+              access.token.claim: "true"
+              id.token.claim: "false"
+              included.client.audience: budcustomer-web
+            name: aud-budcustomer-web
+            protocol: openid-connect
+            protocolMapper: oidc-audience-mapper
+        publicClient: false
+        redirectUris:
+          - https://app.bud.lan/auth/redirect/callback
+          # Customer-app root: allow-lists KEYCLOAK_CUSTOMER_ACTION_REDIRECT_URI so the
+          # hosted invite/reset "set password" flow can redirect a CLIENT user back into
+          # the customer portal on completion (else Keycloak rejects the redirect_uri).
+          - https://customer.bud.lan/*
+        secret: budcustomer-web
+        serviceAccountsEnabled: false
+        standardFlowEnabled: true
+        webOrigins:
+          - +
+      budplayground-web:
+        attributes:
+          post.logout.redirect.uris: https://playground.bud.lan
+        directAccessGrantsEnabled: true
+        enabled: true
+        implicitFlowEnabled: false
+        protocol: openid-connect
+        protocolMappers:
+          - config:
+              access.token.claim: "true"
+              id.token.claim: "false"
+              included.client.audience: budplayground-web
+            name: aud-budplayground-web
+            protocol: openid-connect
+            protocolMapper: oidc-audience-mapper
+        publicClient: false
+        redirectUris:
+          - https://app.bud.lan/auth/redirect/callback
+        secret: budplayground-web
+        serviceAccountsEnabled: false
+        standardFlowEnabled: true
+        webOrigins:
+          - +
+      mcp-gateway:
+        attributes:
+          post.logout.redirect.uris: https://admin.bud.lan##https://customer.bud.lan##https://playground.bud.lan
+        directAccessGrantsEnabled: true
+        enabled: true
+        implicitFlowEnabled: false
+        protocol: openid-connect
+        protocolMappers:
+          - config:
+              access.token.claim: "true"
+              id.token.claim: "false"
+              included.client.audience: mcp-gateway
+            name: aud-mcp-gateway
+            protocol: openid-connect
+            protocolMapper: oidc-audience-mapper
+        publicClient: false
+        redirectUris:
+          - https://app.bud.lan/auth/redirect/callback
+        secret: mcp-gateway
+        serviceAccountsEnabled: false
+        standardFlowEnabled: true
+        webOrigins:
+          - +
+      # budapp-admin: confidential service-account client for provisioning. secret is a dev placeholder — override via secrets.bud.yaml.
+      budapp-admin:
+        enabled: true
+        protocol: openid-connect
+        secret: budapp-admin
+        publicClient: false
+        serviceAccountsEnabled: true
+        standardFlowEnabled: false
+        directAccessGrantsEnabled: false
+        implicitFlowEnabled: false
+    spec:
+      enabled: true
+      realm: bud-keycloak
+      loginTheme: bud
+      sslRequired: external
+      accessTokenLifespan: 1800
+      ssoSessionIdleTimeout: 604800
+      ssoSessionMaxLifespan: 604800
+
+      # Forgot-password + email login; self-registration off.
+      loginWithEmailAllowed: true
+      duplicateEmailsAllowed: false
+      resetPasswordAllowed: true
+      registrationAllowed: false
+
+      # Realm SMTP is configured PER-ENV (needs real creds): dev -> values.bud.yaml + secrets.bud.yaml;
+      # other envs add their own smtpServer to values.<env>.yaml + their secrets. Absent here so an
+      # env without SMTP doesn't inherit a broken placeholder.
+
+      roles:
+        realm:
+          - name: super_admin
+          - name: admin
+          - name: user
+
+      users:
+        - enabled: true
+          username: root
+          email: root@example.com
+          emailVerified: true
+          firstName: Root
+          lastName: Admin
+          realmRoles:
+            - super_admin
+          credentials:
+            - temporary: false
+              type: password
+              value: root@example.com
+
+        # budapp-admin service-account role mapping (CRD has no serviceAccountClientRoles field, so it lives here).
+        - enabled: true
+          username: service-account-budapp-admin
+          serviceAccountClientId: budapp-admin
+          clientRoles:
+            realm-management:
+              - manage-users
+              - view-users

@@ -1,0 +1,119 @@
+<testsuite name="budctl readiness" tests="45" failures="10" skipped="26">
+  <testcase name="cluster.admission-policy" classname="cluster"></testcase>
+  <testcase name="cluster.api-groups" classname="cluster"></testcase>
+  <testcase name="cluster.installer-rbac" classname="cluster">
+    <failure message="this identity cannot create namespaces, customresourcedefinitions.apiextensions.k8s.io, clusterroles.rbac.authorization.k8s.io, clusterrolebindings.rbac.authorization.k8s.io, applicationsets.argoproj.io: the bootstrap stops at the first object it applies and nothing installs">namespaces — every Application syncs with CreateNamespace=true&#xA;customresourcedefinitions.apiextensions.k8s.io — Dapr, cert-manager, CNPG and ArgoCD each register CRDs&#xA;clusterroles.rbac.authorization.k8s.io — the bundled operators install cluster-scoped RBAC&#xA;clusterrolebindings.rbac.authorization.k8s.io — the bundled operators bind that RBAC to their ServiceAccounts&#xA;applicationsets.argoproj.io — the install is two ApplicationSets applied by hand&#xA;bind the install identity to a role that grants them — for a POC, `kubectl create clusterrolebinding budctl-installer --clusterrole=cluster-admin --user=&lt;identity&gt;`; for a scoped role, grant create on namespaces, customresourcedefinitions, clusterroles, clusterrolebindings and applicationsets.argoproj.io</failure>
+  </testcase>
+  <testcase name="cluster.server-side-apply" classname="cluster">
+    <skipped message="namespace &#34;default&#34; does not exist, so there was nowhere to send a harmless dry-run apply; re-run with a kubeconfig whose context has a default namespace"></skipped>
+  </testcase>
+  <testcase name="cluster.version" classname="cluster"></testcase>
+  <testcase name="components.appset-conflicts" classname="components"></testcase>
+  <testcase name="components.dns" classname="components">
+    <failure message="no CoreDNS or kube-dns pods in kube-system: nothing in the cluster can resolve a Service name, so every Dapr service-invocation hop, database connection and object-store call fails">install the distribution&#39;s DNS addon before installing Bud — no chart in either ApplicationSet provides cluster DNS. On kubeadm it arrives with the CNI manifest; on k3s and managed distributions it is present by default, so its absence means the addon was disabled or removed.</failure>
+  </testcase>
+  <testcase name="components.ingress" classname="components">
+    <failure message="no IngressClass exists: every Ingress the install creates stays unclaimed, so not one hostname the chart publishes is ever reachable">install an ingress controller before applying the ApplicationSets — neither of them provides one. Any controller is acceptable: `helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace`, k3s&#39;s bundled Traefik, or the cloud provider&#39;s. Then set ingress.className to its class, or mark the class default with the `ingressclass.kubernetes.io/is-default-class: &#34;true&#34;` annotation.</failure>
+  </testcase>
+  <testcase name="components.metrics-server" classname="components">
+    <failure message="the v1beta1.metrics.k8s.io APIService exists but is not Available (seeded): the aggregation layer cannot reach it, so every HPA in the chart reads `&lt;unknown&gt;/70%` and never scales">backing service: local (served by the API server itself)&#xA;install metrics-server — no chart in either ApplicationSet does: `kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml`, adding `--kubelet-insecure-tls` to its args on clusters whose kubelets serve self-signed certificates</failure>
+  </testcase>
+  <testcase name="config.dry-run" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.fail-closed" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.placeholders" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.public-defaults" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.render" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.required-values" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.valkey-indexes" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="gpu.capacity" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.device-plugin" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.nodes" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.operator-functional" classname="gpu">
+    <skipped message="probes are disabled, so the driver, device-plugin and runtime chain was NOT exercised and is not confirmed working"></skipped>
+  </testcase>
+  <testcase name="gpu.runtime-class" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.sharing" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="nodes.accelerators" classname="nodes"></testcase>
+  <testcase name="nodes.architecture" classname="nodes">
+    <failure message="1 node is of a different architecture — no chart sets a kubernetes.io/arch nodeSelector, so whichever pods land there fail to pull">non-amd64: n3 (arm64)&#xA;taint the non-amd64 node NoSchedule (or remove them from the pool) so the scheduler cannot place platform pods on them</failure>
+  </testcase>
+  <testcase name="nodes.capacity" classname="nodes">
+    <failure message="the schedulable nodes are 1.0GiB short of memory — the platform&#39;s own pods cannot all be placed and the last ones stay Pending with Insufficient cpu/memory">free now: 8.0 cores / 32.0GiB across 1 node&#xA;add capacity to reach 6.0 free cores and 33.0GiB free, or lower the concurrent-deployment answer and re-run</failure>
+  </testcase>
+  <testcase name="nodes.control-plane-label" classname="nodes">
+    <failure message="no node carries bud.studio/control-plane=true, so every chart&#39;s preferred nodeAffinity (weight 75) matches nothing and platform pods land wherever there is room — including on GPU nodes meant for models">the affinity is preferred, not required, so the install still completes; placement is what degrades&#xA;label the node(s) that should host the platform: kubectl label node &lt;name&gt; bud.studio/control-plane=true</failure>
+  </testcase>
+  <testcase name="nodes.count" classname="nodes">
+    <failure message="2 schedulable nodes for in-cluster data stores that expect 3 — the stateful addons install without redundancy, and their quorum members compete for one machine">Kafka sets min.insync.replicas=2, so a single broker cannot acknowledge a write&#xA;ClickHouse Keeper runs a 3-member quorum&#xA;CloudNativePG runs 3 PostgreSQL instances&#xA;add nodes to reach 3, or answer &#39;external&#39; for the data stores and point the chart at managed PostgreSQL/ClickHouse/Kafka/MongoDB</failure>
+  </testcase>
+  <testcase name="nodes.eviction-pressure" classname="nodes">
+    <skipped message="kubelet /stats/summary was not readable on any node (n2: no stats seeded; n3: no stats seeded)"></skipped>
+  </testcase>
+  <testcase name="nodes.imagefs" classname="nodes">
+    <skipped message="2 of 2 nodes could not be measured (n2: no stats seeded; n3: no stats seeded), so the fleet cannot be declared clear"></skipped>
+  </testcase>
+  <testcase name="nodes.largest-pod" classname="nodes"></testcase>
+  <testcase name="nodes.pod-slots" classname="nodes"></testcase>
+  <testcase name="nodes.ready" classname="nodes">
+    <failure message="1 of 3 nodes are unavailable, so the install has to fit on the remaining 2">unavailable: n1&#xA;recover or uncordon the unavailable nodes, or confirm the remaining nodes carry the whole platform</failure>
+  </testcase>
+  <testcase name="nodes.tolerations" classname="nodes"></testcase>
+  <testcase name="platform.cluster-proxy" classname="platform">
+    <skipped message="cluster-wide proxy object is OpenShift-specific"></skipped>
+  </testcase>
+  <testcase name="platform.distribution" classname="platform"></testcase>
+  <testcase name="platform.openshift-version" classname="platform">
+    <skipped message="not an OpenShift cluster"></skipped>
+  </testcase>
+  <testcase name="storage.capacity" classname="storage">
+    <skipped message="the cluster has no StorageClass (see storage.default-class)"></skipped>
+  </testcase>
+  <testcase name="storage.csi-healthy" classname="storage">
+    <skipped message="the cluster has no StorageClass, so there is no driver to inspect (see storage.default-class)"></skipped>
+  </testcase>
+  <testcase name="storage.default-class" classname="storage">
+    <failure message="the cluster has no StorageClass at all, so every PVC the install creates stays Pending forever and no Application reaches Healthy">budctl does not require a particular provisioner; local-path, EBS, Azure Disk, ODF, Ceph, NFS and OpenEBS are all acceptable&#xA;install a CSI driver — any of them — and mark one class default: kubectl patch storageclass &lt;class&gt; -p &#39;{&#34;metadata&#34;:{&#34;annotations&#34;:{&#34;storageclass.kubernetes.io/is-default-class&#34;:&#34;true&#34;}}}&#39;</failure>
+  </testcase>
+  <testcase name="storage.expansion" classname="storage">
+    <skipped message="the cluster has no StorageClass (see storage.default-class)"></skipped>
+  </testcase>
+  <testcase name="storage.host-prereqs" classname="storage">
+    <skipped message="the cluster has no StorageClass (see storage.default-class)"></skipped>
+  </testcase>
+  <testcase name="storage.named-classes" classname="storage">
+    <skipped message="no StorageClass is named in the values (the chart&#39;s own defaults); every claim relies on the default, which storage.default-class covers"></skipped>
+  </testcase>
+  <testcase name="storage.provision" classname="storage">
+    <skipped message="probes are disabled (--no-probe): no claim was created, so provisioning is not confirmed working"></skipped>
+  </testcase>
+  <testcase name="storage.rwx" classname="storage">
+    <skipped message="no chart render: pass --chart and --values to check the access modes the chart asks for"></skipped>
+  </testcase>
+  <testcase name="storage.shared-rwo" classname="storage">
+    <skipped message="no chart render: pass --chart and --values to check which workloads share a claim"></skipped>
+  </testcase>
+</testsuite>

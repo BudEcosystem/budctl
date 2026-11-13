@@ -10,19 +10,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 	"github.com/BudEcosystem/budctl/internal/intake"
 )
 
 // setupModel is a real application model on its intake screen, restricted to
 // the platform group so the run the form starts is instant and offline.
-func setupModel(t *testing.T, prime func(*engine.Ctx)) *Model {
+func setupModel(t *testing.T, prime func(*check.Ctx)) *Model {
 	t.Helper()
 	c := testCtx(t)
 	if prime != nil {
 		prime(c)
 	}
-	m := New(context.Background(), c, engine.Selection{Only: []string{"platform"}}, false, "")
+	m := New(context.Background(), c, check.Selection{Only: []string{"platform"}}, false, "")
 	var tm tea.Model = m
 	tm = pump(tm, tea.WindowSizeMsg{Width: 110, Height: 40})
 	tm = drain(tm, m.Init(), 0)
@@ -45,7 +45,7 @@ func walk(t *testing.T, m *Model) (*Model, string) {
 
 // The operator should never need --help to discover a question exists.
 func TestIntakeWalksEveryPageAndAsksEveryQuestion(t *testing.T) {
-	m := setupModel(t, func(c *engine.Ctx) {
+	m := setupModel(t, func(c *check.Ctx) {
 		c.Answers.Domain = "bud.example.com"
 		c.Answers.ConfigRepo = "ssh://git@github.com/acme/cfg"
 		c.Answers.ModelStorageGi = 600
@@ -74,7 +74,7 @@ func TestIntakeWalksEveryPageAndAsksEveryQuestion(t *testing.T) {
 
 // Pages the answers make irrelevant must not appear.
 func TestIntakeSkipsIrrelevantPages(t *testing.T) {
-	m := setupModel(t, func(c *engine.Ctx) {
+	m := setupModel(t, func(c *check.Ctx) {
 		c.Answers.Domain = "bud.example.com"
 		c.Answers.ConfigRepo = "ssh://git@github.com/acme/cfg"
 		c.Answers.ModelStorageGi = 600
@@ -175,7 +175,7 @@ func TestIntakeEveryFieldOnAPageIsVisible(t *testing.T) {
 		"6 · Your configuration":    {"Values file"},
 		"7 · Ready to check":        {"Probe from inside the cluster?"},
 	}
-	m := setupModel(t, func(c *engine.Ctx) {
+	m := setupModel(t, func(c *check.Ctx) {
 		c.Answers.Domain = "bud.example.com"
 		c.Answers.ConfigRepo = "ssh://git@github.com/acme/cfg"
 	})
@@ -212,7 +212,7 @@ func TestIntakeEveryFieldOnAPageIsVisible(t *testing.T) {
 // operator supplies themselves is the case budctl cannot verify without the
 // issuing root, and the answer is dropped again if the method changes.
 func TestIntakeAsksForTheCABundleOnlyForAProvidedCertificate(t *testing.T) {
-	m := setupModel(t, func(c *engine.Ctx) {
+	m := setupModel(t, func(c *check.Ctx) {
 		c.Answers.Domain = "bud.example.com"
 		c.Answers.TLS = intake.TLSProvided
 		c.Answers.ConfigRepo = "ssh://git@github.com/acme/cfg"
