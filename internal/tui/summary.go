@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 // The summary is what the operator leaves with. It pins the verdict and the
@@ -42,9 +42,9 @@ func (m *Model) statRow(w int) string {
 	rep := m.report
 	vColor := pal.Pass
 	switch rep.Verdict {
-	case engine.NotReady:
+	case check.NotReady:
 		vColor = pal.Block
-	case engine.ReadyWithRisks:
+	case check.ReadyWithRisks:
 		vColor = pal.Risk
 	}
 	countColor := func(n int, c lipgloss.AdaptiveColor) lipgloss.AdaptiveColor {
@@ -92,7 +92,7 @@ func (m *Model) summaryBody() string {
 	inner := w - 4
 	blocks := []string{}
 
-	cause, blocked := engine.RootCause(rep.Results)
+	cause, blocked := check.RootCause(rep.Results)
 	if cause != nil {
 		body := sText.Render(wrapTo(cause.Summary, inner))
 		if cause.Remedy != "" {
@@ -142,7 +142,7 @@ func (m *Model) summaryBody() string {
 			strings.Join(lines, "\n"), w, pal.Risk))
 	}
 
-	groups := engine.GroupSkips(rep.Results)
+	groups := check.GroupSkips(rep.Results)
 	if len(groups) > 0 {
 		lines := []string{sMuted.Render("These are not passes — each group says why the checks could not run.")}
 		for _, g := range groups {

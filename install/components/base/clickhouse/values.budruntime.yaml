@@ -1,0 +1,53 @@
+users:
+  bud:
+    password: "bud"
+    databases:
+      - name: bud_eval
+      - name: bud_gateway
+      - name: metrics
+        extraArgs: "ENGINE = Replicated('/clickhouse/databases/{uuid}', '{shard}', '{replica}')"
+    grants:
+      - ALL ON metrics.*
+      - SELECT(path) ON system.zookeeper
+      # Required by budmetrics' migrate_clickhouse.py:detect_replicated_mode()
+      # so its topology probe succeeds instead of falling back to "default to
+      # replicated". The chart-side fix above makes the script's auto-detect
+      # cosmetic in production, but on single-node deployments without these
+      # grants the script would mis-detect and try to emit Replicated DDL.
+      - SELECT(cluster, replica_num) ON system.clusters
+      - SELECT(macro, substitution) ON system.macros
+
+altinity-clickhouse-operator:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 75
+        preference:
+          matchExpressions:
+            - key: bud.studio/control-plane
+              operator: In
+              values:
+                - "true"
+
+keeper:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"

@@ -1,0 +1,16 @@
+config:
+  extraConfig:
+    - "notify-keyspace-events KEA"
+resources:
+  limits:
+    memory: 1Gi
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 75
+        preference:
+          matchExpressions:
+            - key: bud.studio/control-plane
+              operator: In
+              values:
+                - "true"

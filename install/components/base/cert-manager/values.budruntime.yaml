@@ -1,0 +1,56 @@
+trust-manager:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+
+cert-manager:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 75
+          preference:
+            matchExpressions:
+              - key: bud.studio/control-plane
+                operator: In
+                values:
+                  - "true"
+  webhook:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 75
+            preference:
+              matchExpressions:
+                - key: bud.studio/control-plane
+                  operator: In
+                  values:
+                    - "true"
+  cainjector:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 75
+            preference:
+              matchExpressions:
+                - key: bud.studio/control-plane
+                  operator: In
+                  values:
+                    - "true"
+  startupapicheck:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 75
+            preference:
+              matchExpressions:
+                - key: bud.studio/control-plane
+                  operator: In
+                  values:
+                    - "true"

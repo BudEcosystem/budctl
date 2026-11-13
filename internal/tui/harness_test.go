@@ -11,10 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/BudEcosystem/budctl/internal/adapters"
-	_ "github.com/BudEcosystem/budctl/internal/checks"
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
+	_ "github.com/BudEcosystem/budctl/check/checks"
+	"github.com/BudEcosystem/budctl/internal/helm"
 	"github.com/BudEcosystem/budctl/internal/intake"
+	"github.com/BudEcosystem/budctl/internal/net"
+	"github.com/BudEcosystem/budctl/internal/oci"
 )
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
@@ -88,9 +90,9 @@ func drain(m tea.Model, cmd tea.Cmd, depth int) tea.Model {
 	return drain(m, next, depth+1)
 }
 
-func testCtx(t *testing.T) *engine.Ctx {
+func testCtx(t *testing.T) *check.Ctx {
 	t.Helper()
-	c := engine.NewCtx()
+	c := check.NewCtx()
 	c.Answers = intake.Defaults()
 	p, err := intake.LoadProfile()
 	if err != nil {
@@ -112,21 +114,21 @@ func unreachableModel(t *testing.T, width, height int) *Model {
 	c.Profile.Egress = nil
 	c.Profile.EgressTCP = nil
 	c.Profile.Registries = nil
-	c.Net = adapters.NewNet(150 * time.Millisecond)
-	c.OCI = adapters.NewOCI(c.Net)
-	c.Helm = adapters.NewHelm()
+	c.Net = net.New(150 * time.Millisecond)
+	c.OCI = oci.New(c.Net)
+	c.Helm = helm.New()
 	c.Opts.NoProbe = true
 	c.Opts.ArgoCDEnabled = true
 	c.Set("kube.error", "invalid configuration: no configuration has been provided")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	rep := engine.Summarize(engine.Run(ctx, c, engine.Selection{}, nil))
+	rep := check.Summarize(check.Run(ctx, c, check.Selection{}, nil))
 	return finishedModel(c, rep, width, height)
 }
 
-func finishedModel(c *engine.Ctx, rep engine.Report, width, height int) *Model {
-	m := New(context.Background(), c, engine.Selection{}, true, "")
+func finishedModel(c *check.Ctx, rep check.Report, width, height int) *Model {
+	m := New(context.Background(), c, check.Selection{}, true, "")
 	m.width, m.height = width, height
 	m.report = rep
 	m.finished = true
@@ -136,26 +138,26 @@ func finishedModel(c *engine.Ctx, rep engine.Report, width, height int) *Model {
 	return m
 }
 
-func sampleReport() engine.Report {
-	return engine.Summarize([]engine.Result{
-		{ID: "nodes.imagefs", Group: "nodes", State: engine.StateFail, Severity: engine.Block,
+func sampleReport() check.Report {
+	return check.Summarize([]check.Result{
+		{ID: "nodes.imagefs", Group: "nodes", State: check.StateFail, Severity: check.Block,
 			Summary: "4 nodes are below the 80 GiB image-filesystem floor",
 			Remedy:  "grow the image filesystem to at least 80 GiB free per node",
-			Gauges: []engine.Gauge{
+			Gauges: []check.Gauge{
 				{Label: "ax52-0", Have: 47 << 30, Need: 80 << 30, Unit: "bytes"},
 				{Label: "ax52-3", Have: 120 << 30, Need: 80 << 30, Unit: "bytes"},
 			},
-			Evidence:     []engine.Evidence{{What: "kubelet /stats/summary", Output: "node/ax52-0 imageFs 47GiB"}},
+			Evidence:     []check.Evidence{{What: "kubelet /stats/summary", Output: "node/ax52-0 imageFs 47GiB"}},
 			DoesNotProve: "headroom for the model runtime images"},
-		{ID: "config.valkey-indexes", Group: "config", State: engine.StateFail, Severity: engine.Block,
+		{ID: "config.valkey-indexes", Group: "config", State: check.StateFail, Severity: check.Block,
 			Summary: "1 Valkey index carries two logical uses", Remedy: "give every entry its own index"},
-		{ID: "registry.pinned-tags", Group: "registry", State: engine.StateFail, Severity: engine.Risk,
+		{ID: "registry.pinned-tags", Group: "registry", State: check.StateFail, Severity: check.Risk,
 			Summary: "4 image references are not pinned to an immutable tag"},
-		{ID: "storage.provision", Group: "storage", State: engine.StateSkip, Severity: engine.Block,
+		{ID: "storage.provision", Group: "storage", State: check.StateSkip, Severity: check.Block,
 			Summary: "--no-probe: not verified, and therefore not confirmed working"},
-		{ID: "egress.install", Group: "egress", State: engine.StateSkip, Severity: engine.Block,
+		{ID: "egress.install", Group: "egress", State: check.StateSkip, Severity: check.Block,
 			Summary: "--no-probe: not verified, and therefore not confirmed working"},
-		{ID: "cluster.version", Group: "cluster", State: engine.StatePass, Severity: engine.Block,
+		{ID: "cluster.version", Group: "cluster", State: check.StatePass, Severity: check.Block,
 			Summary: "Kubernetes v1.30 ≥ 1.25"},
 	})
 }

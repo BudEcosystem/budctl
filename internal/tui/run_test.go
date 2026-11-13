@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 // The run screen shows the whole shape of the run up front, live progress, and
@@ -13,7 +13,7 @@ import (
 func TestRunScreenShowsProgressGroupsAndLiveCounts(t *testing.T) {
 	c := testCtx(t)
 	c.Answers.Domain = "bud.example.com"
-	m := New(context.Background(), c, engine.Selection{}, true, "")
+	m := New(context.Background(), c, check.Selection{}, true, "")
 	m.width, m.height = 110, 40
 	m.planRun()
 	m.state = stateRunning

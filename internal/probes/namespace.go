@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/BudEcosystem/budctl/internal/adapters"
+	"github.com/BudEcosystem/budctl/k8s"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 // Runner creates the probe namespace lazily: a run that never reaches a probe
 // check must not leave a namespace behind.
 type Runner struct {
-	kube       *adapters.Kube
+	kube       *k8s.Client
 	name       string
 	keep       bool
 	created    bool
@@ -35,7 +35,7 @@ type Runner struct {
 	pullSecret string
 }
 
-func NewRunner(k *adapters.Kube, explicitNamespace, suffix string, keep bool) *Runner {
+func NewRunner(k *k8s.Client, explicitNamespace, suffix string, keep bool) *Runner {
 	name := explicitNamespace
 	if name == "" {
 		name = NamePrefix + suffix

@@ -1,0 +1,99 @@
+<testsuite name="budctl readiness" tests="45" failures="6" skipped="20">
+  <testcase name="cluster.admission-policy" classname="cluster"></testcase>
+  <testcase name="cluster.api-groups" classname="cluster"></testcase>
+  <testcase name="cluster.installer-rbac" classname="cluster">
+    <failure message="this identity cannot create namespaces, customresourcedefinitions.apiextensions.k8s.io, clusterroles.rbac.authorization.k8s.io, clusterrolebindings.rbac.authorization.k8s.io, applicationsets.argoproj.io: the bootstrap stops at the first object it applies and nothing installs">namespaces — every Application syncs with CreateNamespace=true&#xA;customresourcedefinitions.apiextensions.k8s.io — Dapr, cert-manager, CNPG and ArgoCD each register CRDs&#xA;clusterroles.rbac.authorization.k8s.io — the bundled operators install cluster-scoped RBAC&#xA;clusterrolebindings.rbac.authorization.k8s.io — the bundled operators bind that RBAC to their ServiceAccounts&#xA;applicationsets.argoproj.io — the install is two ApplicationSets applied by hand&#xA;bind the install identity to a role that grants them — for a POC, `kubectl create clusterrolebinding budctl-installer --clusterrole=cluster-admin --user=&lt;identity&gt;`; for a scoped role, grant create on namespaces, customresourcedefinitions, clusterroles, clusterrolebindings and applicationsets.argoproj.io</failure>
+  </testcase>
+  <testcase name="cluster.server-side-apply" classname="cluster">
+    <skipped message="namespace &#34;default&#34; does not exist, so there was nowhere to send a harmless dry-run apply; re-run with a kubeconfig whose context has a default namespace"></skipped>
+  </testcase>
+  <testcase name="cluster.version" classname="cluster"></testcase>
+  <testcase name="components.appset-conflicts" classname="components"></testcase>
+  <testcase name="components.dns" classname="components">
+    <failure message="1 of 1 cluster-DNS pod is in kube-system not ready (Running): in-cluster name resolution is failing or one node outage away from it, and every Dapr call, database connection and object-store request resolves through them">coredns-1 0/0 Running&#xA;`kubectl -n kube-system describe pod coredns-1` and `kubectl -n kube-system logs coredns-1` — a CrashLooping CoreDNS is usually a bad Corefile, an unreachable upstream resolver in the node&#39;s /etc/resolv.conf, or a forwarding loop back into itself. Fix it before installing; nothing in the ApplicationSets can.</failure>
+  </testcase>
+  <testcase name="components.ingress" classname="components">
+    <failure message="no running controller could be matched to the IngressClass (traefik (traefik.io/ingress-controller)): if nothing is serving it, every Ingress the install creates stays unclaimed and no hostname the chart publishes answers">check the controller is running (`kubectl get pods -A | grep -i ingress`). budctl ties a class to its controller by name, because spec.controller is a vendor identifier with no API link to a workload — so a controller whose pods carry none of those names, or one that runs outside the cluster such as a cloud load-balancer controller, is not matched here, and `domains.inbound-80` / `domains.inbound-443` are what prove that path instead.</failure>
+  </testcase>
+  <testcase name="components.metrics-server" classname="components"></testcase>
+  <testcase name="config.dry-run" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.fail-closed" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.placeholders" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.public-defaults" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.render" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.required-values" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="config.valkey-indexes" classname="config">
+    <skipped message="no --values: this group judges the values the operator will hand ArgoCD, and none were supplied"></skipped>
+  </testcase>
+  <testcase name="gpu.capacity" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.device-plugin" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.nodes" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.operator-functional" classname="gpu">
+    <skipped message="probes are disabled, so the driver, device-plugin and runtime chain was NOT exercised and is not confirmed working"></skipped>
+  </testcase>
+  <testcase name="gpu.runtime-class" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="gpu.sharing" classname="gpu">
+    <skipped message="no node advertises nvidia.com/gpu, habana.ai/gaudi or amd.com/gpu, and none carries accelerator hardware labels: this is a CPU-only cluster, which Bud supports"></skipped>
+  </testcase>
+  <testcase name="nodes.accelerators" classname="nodes"></testcase>
+  <testcase name="nodes.architecture" classname="nodes"></testcase>
+  <testcase name="nodes.capacity" classname="nodes"></testcase>
+  <testcase name="nodes.control-plane-label" classname="nodes">
+    <failure message="no node carries bud.studio/control-plane=true, so every chart&#39;s preferred nodeAffinity (weight 75) matches nothing and platform pods land wherever there is room — including on GPU nodes meant for models">the affinity is preferred, not required, so the install still completes; placement is what degrades&#xA;label the node(s) that should host the platform: kubectl label node &lt;name&gt; bud.studio/control-plane=true</failure>
+  </testcase>
+  <testcase name="nodes.count" classname="nodes"></testcase>
+  <testcase name="nodes.eviction-pressure" classname="nodes"></testcase>
+  <testcase name="nodes.imagefs" classname="nodes"></testcase>
+  <testcase name="nodes.largest-pod" classname="nodes"></testcase>
+  <testcase name="nodes.pod-slots" classname="nodes"></testcase>
+  <testcase name="nodes.ready" classname="nodes"></testcase>
+  <testcase name="nodes.tolerations" classname="nodes"></testcase>
+  <testcase name="platform.cluster-proxy" classname="platform">
+    <skipped message="cluster-wide proxy object is OpenShift-specific"></skipped>
+  </testcase>
+  <testcase name="platform.distribution" classname="platform"></testcase>
+  <testcase name="platform.openshift-version" classname="platform">
+    <skipped message="not an OpenShift cluster"></skipped>
+  </testcase>
+  <testcase name="storage.capacity" classname="storage">
+    <failure message="provisionable capacity is UNVERIFIED for standard (rancher.io/local-path): the driver publishes no CSIStorageCapacity, there is no OpenEBS DiskPool, and the class is not node-local — required 557 GiB = 200 GiB model weights + 58 GiB platform claims + 269 GiB in-cluster data stores + 30 GiB traces and metrics (30d retention), estimated could be short and the install would fail mid-sync">budctl will not guess: an unmeasured backend is reported as unknown, not as sufficient&#xA;check the backend by hand before installing — `vgs` for LVM, `kubectl get diskpool -A` for Mayastor, the cloud console quota for EBS/Azure Disk — and confirm it holds 557 GiB</failure>
+  </testcase>
+  <testcase name="storage.csi-healthy" classname="storage">
+    <failure message="nothing is registered to provision standard (rancher.io/local-path): there is no CSIDriver object and no pod that answers to that provisioner, so its claims are never acted on">a class can be created before its driver; the claim then waits forever with no event other than the provisioner name&#xA;install the CSI driver the class names, or repoint the values at a class whose driver is installed: kubectl get csidrivers</failure>
+  </testcase>
+  <testcase name="storage.default-class" classname="storage"></testcase>
+  <testcase name="storage.expansion" classname="storage"></testcase>
+  <testcase name="storage.host-prereqs" classname="storage"></testcase>
+  <testcase name="storage.named-classes" classname="storage">
+    <skipped message="no StorageClass is named in the values (the chart&#39;s own defaults); every claim relies on the default, which storage.default-class covers"></skipped>
+  </testcase>
+  <testcase name="storage.provision" classname="storage">
+    <skipped message="probes are disabled (--no-probe): no claim was created, so provisioning is not confirmed working"></skipped>
+  </testcase>
+  <testcase name="storage.rwx" classname="storage">
+    <skipped message="no chart render: pass --chart and --values to check the access modes the chart asks for"></skipped>
+  </testcase>
+  <testcase name="storage.shared-rwo" classname="storage">
+    <skipped message="no chart render: pass --chart and --values to check which workloads share a claim"></skipped>
+  </testcase>
+</testsuite>

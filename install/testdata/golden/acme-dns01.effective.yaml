@@ -1,0 +1,1037 @@
+applicationSet:
+    apiVersion: argoproj.io/v1alpha1
+    kind: ApplicationSet
+    metadata:
+        name: production
+        namespace: argocd
+    spec:
+        goTemplate: true
+        goTemplateOptions:
+            - missingkey=error
+        template:
+            metadata:
+                annotations:
+                    argocd.argoproj.io/compare-options: ServerSideDiff=true
+                name: production-{{.name}}
+            spec:
+                destination:
+                    namespace: '{{.namespace}}'
+                    server: https://kubernetes.default.svc
+                project: production
+                syncPolicy:
+                    automated:
+                        enabled: false
+                        selfHeal: true
+                    syncOptions:
+                        - CreateNamespace=true
+                        - ServerSideApply=true
+        templatePatch: |
+            spec:
+              sources:
+                {{- if .gitPath }}
+                - repoURL: {{ .gitRepoURL | quote }}
+                  targetRevision: {{ .gitRevision | quote }}
+                  path: {{ .gitPath | quote }}
+                  helm:
+                    releaseName: "{{.name}}"
+                    valueFiles:
+                      {{- .valueFiles | toYaml | nindent 12 }}
+                {{- else }}
+                - repoURL: {{ .repoURL | quote }}
+                  chart: {{ .chart | quote }}
+                  targetRevision: {{ .targetRevision | quote }}
+                  helm:
+                    releaseName: "{{.name}}"
+                    valueFiles:
+                      {{- .valueFiles | toYaml | nindent 12 }}
+                {{- end }}
+                - repoURL: "https://github.com/example/bud-config"
+                  targetRevision: "main"
+                  ref: values
+argocdBootstrapValues:
+    argo-cd:
+        configs:
+            cm:
+                url: https://argocd.bud.example.com
+            repositories:
+                bud-charts:
+                    enableOCI: "true"
+                    name: bud-charts
+                    password: registry-secret
+                    type: helm
+                    url: registry.bud.studio/charts
+                    username: robot
+        redis:
+            securityContext:
+                runAsUser: 999
+    global:
+        affinity:
+            nodeAffinity:
+                matchExpressions:
+                    - key: bud.studio/control-plane
+                      operator: In
+                      values:
+                        - "true"
+                type: soft
+        domain: argocd.bud.example.com
+    ingress:
+        className: traefik
+        enabled: true
+        host: argocd.bud.example.com
+        isTraefik: true
+    projects:
+        production:
+            clusterResourceWhitelist:
+                - group: '*'
+                  kind: '*'
+            destinations:
+                - namespace: '*'
+                  server: https://kubernetes.default.svc
+            sourceRepos:
+                - '*'
+    repo:
+        enabled: true
+        url: https://github.com/example/bud-config
+    sopsAgeKeys: AGE-SECRET-KEY-19LCLPSGZL57K7TDN9CPH4H734VZN3JY0EAT60SG5W2QSK68F6A8QQPTQSL
+components:
+    argocd:
+        chartValueFiles: []
+        namespace: argocd
+        source:
+            chart: argocd
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.1
+        values:
+            argo-cd:
+                configs:
+                    cm:
+                        url: https://argocd.bud.example.com
+                    repositories:
+                        bud-charts:
+                            enableOCI: "true"
+                            name: bud-charts
+                            password: registry-secret
+                            type: helm
+                            url: registry.bud.studio/charts
+                            username: robot
+                redis:
+                    securityContext:
+                        runAsUser: 999
+            global:
+                affinity:
+                    nodeAffinity:
+                        matchExpressions:
+                            - key: bud.studio/control-plane
+                              operator: In
+                              values:
+                                - "true"
+                        type: soft
+                domain: argocd.bud.example.com
+            ingress:
+                className: traefik
+                enabled: true
+                host: argocd.bud.example.com
+                isTraefik: true
+            projects:
+                production:
+                    clusterResourceWhitelist:
+                        - group: '*'
+                          kind: '*'
+                    destinations:
+                        - namespace: '*'
+                          server: https://kubernetes.default.svc
+                    sourceRepos:
+                        - '*'
+            repo:
+                enabled: true
+                url: https://github.com/example/bud-config
+            sopsAgeKeys: AGE-SECRET-KEY-19LCLPSGZL57K7TDN9CPH4H734VZN3JY0EAT60SG5W2QSK68F6A8QQPTQSL
+    bud:
+        chartValueFiles: []
+        namespace: bud
+        source:
+            chart: bud
+            repoURL: registry.bud.studio/charts
+            targetRevision: 1.2.8
+        values:
+            appApiToken: golden-app-api
+            daprExtra:
+                crypto:
+                    asymmetricKey: golden-dapr-asymmetric
+                    budeventCryptoKey: golden-dapr-budevent
+                    symmetricKey: golden-dapr-symmetric
+            externalServices:
+                clickhouse:
+                    auth:
+                        password: golden-clickhouse
+                        username: bud
+                kafka:
+                    auth:
+                        password: golden-kafka
+                        username: bud
+                mongodb:
+                    auth:
+                        password: golden-mongodb
+                        username: bud_novu
+                oidc:
+                    clients:
+                        mcpgateway:
+                            secret: golden-keycloak-mcpgateway
+                    url: https://auth.bud.example.com/realms/bud-keycloak
+                postgresql:
+                    databases:
+                        budagent:
+                            password: golden-postgres-bud
+                            username: bud
+                        budapp:
+                            password: golden-postgres-bud
+                            username: bud
+                        budask:
+                            password: golden-postgres-bud
+                            username: bud
+                        budcluster:
+                            password: golden-postgres-bud
+                            username: bud
+                        budcodeinterpreter:
+                            password: golden-postgres-bud
+                            username: bud
+                        buddoc:
+                            password: golden-postgres-bud
+                            username: bud
+                        budeval:
+                            password: golden-postgres-bud
+                            username: bud
+                        budevent:
+                            password: golden-postgres-bud
+                            username: bud
+                        budmetrics:
+                            password: golden-postgres-bud
+                            username: bud
+                        budmodel:
+                            password: golden-postgres-bud
+                            username: bud
+                        budpipeline:
+                            password: golden-postgres-bud
+                            username: bud
+                        budprompt:
+                            password: golden-postgres-bud
+                            username: bud
+                        budsim:
+                            password: golden-postgres-bud
+                            username: bud
+                        keycloak:
+                            password: golden-postgres-keycloak
+                            username: keycloak
+                        mcpgateway:
+                            password: golden-postgres-bud
+                            username: bud
+                        onyx:
+                            password: golden-postgres-bud
+                            username: bud
+                s3:
+                    auth:
+                        accessKey: golden-s3-access
+                        secretKey: golden-s3-secret
+                    endpoint: s3.bud.example.com
+                    secure: true
+                valkey:
+                    password: golden-valkey
+            global:
+                ingress:
+                    hosts:
+                        root: bud.example.com
+            ingress:
+                className: traefik
+                https: internal
+                isTraefik: true
+            keycloak:
+                auth:
+                    adminPassword: golden-keycloak-admin
+                    adminUser: admin@example.com
+                externalDatabase:
+                    password: golden-postgres-keycloak
+                    user: keycloak
+            microservices:
+                budapp:
+                    env:
+                        AES_KEY_HEX: golden-aes
+                        JWT_SECRET_KEY: golden-jwt
+                    redirectFlow:
+                        adminClientSecret: golden-keycloak-budapp-admin
+                        clientsByHost:
+                            budadmin:
+                                allowedReturnUrlOrigins:
+                                    - '{{ include "bud.ingress.url.budadmin" . }}'
+                                clientId: budadmin-web
+                                clientSecret: golden-keycloak-budadmin
+                                hosts:
+                                    - '{{ include "bud.ingress.hosts.budadmin" . }}'
+                            budcustomer:
+                                allowedReturnUrlOrigins:
+                                    - '{{ include "bud.ingress.url.budcustomer" . }}'
+                                clientId: budcustomer-web
+                                clientSecret: golden-keycloak-budcustomer
+                                hosts:
+                                    - '{{ include "bud.ingress.hosts.budcustomer" . }}'
+                            budplayground:
+                                allowedReturnUrlOrigins:
+                                    - '{{ include "bud.ingress.url.budplayground" . }}'
+                                clientId: budplayground-web
+                                clientSecret: golden-keycloak-budplayground
+                                hosts:
+                                    - '{{ include "bud.ingress.hosts.budplayground" . }}'
+                        defaultClientSecret: golden-keycloak-budadmin
+                        sessionSecret: golden-session
+                budcluster:
+                    registerDefaultCluster:
+                        token: golden-cluster-token
+                budcodeinterpreter:
+                    enabled: true
+                    env:
+                        SECRETS_OPENSANDBOX_API_KEY: golden-opensandbox-api
+                budeval:
+                    enabled: true
+                budnotify:
+                    env:
+                        JWT_SECRET: golden-notify-jwt
+                        STORE_ENCRYPTION_KEY: golden-notify-store
+                global:
+                    env:
+                        PASSWORD_SALT: golden-password-salt
+                        SUPER_USER_EMAIL: admin@example.com
+                        SUPER_USER_PASSWORD: golden-admin-password
+                mcpgateway:
+                    env:
+                        AUTH_ENCRYPTION_SECRET: golden-mcp-encryption
+                        BASIC_AUTH_PASSWORD: golden-mcp-basic
+                        BASIC_AUTH_USER: admin@example.com
+                        JWT_SECRET_KEY: golden-mcp-jwt
+                        PLATFORM_ADMIN_EMAIL: admin@example.com
+                        PLATFORM_ADMIN_PASSWORD: golden-admin-password
+                rsaKeys:
+                    privateKey: golden-rsa-private
+                    privateKeyPassword: golden-rsa-password
+                    publicKey: golden-rsa-public
+            novu:
+                externalDatabase:
+                    password: golden-mongodb
+                    username: bud_novu
+                store:
+                    encryption-key: golden-novu-encryption
+            novuExtra:
+                email: admin@example.com
+                password: golden-novu-admin
+            prometheus:
+                server:
+                    securityContext:
+                        fsGroup: 65534
+                        runAsGroup: 65534
+                        runAsUser: 65534
+            registries:
+                registry.bud.studio:
+                    password: registry-secret
+                    username: robot
+            storage:
+                budmodelRegistry:
+                    className: standard
+                    size: 300Gi
+    cert-manager:
+        chartValueFiles: []
+        namespace: cert-manager
+        source:
+            chart: cert-manager
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.3
+        values:
+            cert-manager:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+                cainjector:
+                    affinity:
+                        nodeAffinity:
+                            preferredDuringSchedulingIgnoredDuringExecution:
+                                - preference:
+                                    matchExpressions:
+                                        - key: bud.studio/control-plane
+                                          operator: In
+                                          values:
+                                            - "true"
+                                  weight: 75
+                ingressShim:
+                    defaultIssuerName: letsencrypt-dns01
+                startupapicheck:
+                    affinity:
+                        nodeAffinity:
+                            preferredDuringSchedulingIgnoredDuringExecution:
+                                - preference:
+                                    matchExpressions:
+                                        - key: bud.studio/control-plane
+                                          operator: In
+                                          values:
+                                            - "true"
+                                  weight: 75
+                webhook:
+                    affinity:
+                        nodeAffinity:
+                            preferredDuringSchedulingIgnoredDuringExecution:
+                                - preference:
+                                    matchExpressions:
+                                        - key: bud.studio/control-plane
+                                          operator: In
+                                          values:
+                                            - "true"
+                                  weight: 75
+            issuers:
+                letsencrypt-dns01:
+                    acme:
+                        privateKeySecretRef:
+                            name: letsencrypt-dns01-account-key
+                        profile: tlsserver
+                        server: https://acme-v02.api.letsencrypt.org/directory
+                        solvers:
+                            - dns01:
+                                cloudflare:
+                                    apiTokenSecretRef:
+                                        key: api-token
+                                        name: cloudflare-api-token
+            secrets:
+                cloudflare-api-token:
+                    api-token: cloudflare-token
+            trust-manager:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+    clickhouse:
+        chartValueFiles:
+            - example.minimal.yaml
+        namespace: clickhouse
+        source:
+            chart: clickhouse
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.1
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+            altinity-clickhouse-operator:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+            keeper:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+            users:
+                bud:
+                    databases:
+                        - name: bud_eval
+                        - name: bud_gateway
+                        - extraArgs: ENGINE = Replicated('/clickhouse/databases/{uuid}', '{shard}', '{replica}')
+                          name: metrics
+                    grants:
+                        - ALL ON metrics.*
+                        - SELECT(path) ON system.zookeeper
+                        - SELECT(cluster, replica_num) ON system.clusters
+                        - SELECT(macro, substitution) ON system.macros
+                    password: golden-clickhouse
+    dapr:
+        chartValueFiles: []
+        namespace: dapr-system
+        source:
+            chart: dapr
+            repoURL: https://dapr.github.io/helm-charts
+            targetRevision: 1.17.5
+        values:
+            dapr_placement:
+                ha: true
+                volumeclaims:
+                    storageClassName: ""
+            dapr_scheduler:
+                cluster:
+                    storageClassName: ""
+                    storageSize: 1Gi
+                ha: true
+            enabled: true
+            global:
+                ha:
+                    enabled: false
+    kafka:
+        chartValueFiles:
+            - example.minimal.yaml
+        namespace: kafka
+        source:
+            chart: kafka
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.1
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+            strimzi-kafka-operator:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+            users:
+                bud:
+                    password: golden-kafka
+                    spec: {}
+    keycloak:
+        chartValueFiles: []
+        namespace: keycloak
+        source:
+            chart: keycloak
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.2.1
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+            image: registry.bud.studio/runtime/keycloak-budtheme:0.2.2
+            imagePullSecrets:
+                - name: registry.bud.studio
+            ingress:
+                className: traefik
+                enabled: true
+                host: auth.bud.example.com
+                https: true
+                isTraefik: true
+            password: golden-keycloak-admin
+            postgres:
+                password: golden-postgres-keycloak
+            realms:
+                keycloak-bud-keycloak-realm:
+                    clients:
+                        budadmin-web:
+                            attributes:
+                                post.logout.redirect.uris: https://admin.bud.example.com
+                            directAccessGrantsEnabled: true
+                            enabled: true
+                            implicitFlowEnabled: false
+                            protocol: openid-connect
+                            protocolMappers:
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.client.audience: budadmin-web
+                                  name: aud-budadmin-web
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                            publicClient: false
+                            redirectUris:
+                                - https://app.bud.example.com/auth/redirect/callback
+                            secret: golden-keycloak-budadmin
+                            serviceAccountsEnabled: false
+                            standardFlowEnabled: true
+                            webOrigins:
+                                - +
+                        budapp-admin:
+                            directAccessGrantsEnabled: false
+                            enabled: true
+                            implicitFlowEnabled: false
+                            protocol: openid-connect
+                            publicClient: false
+                            secret: golden-keycloak-budapp-admin
+                            serviceAccountsEnabled: true
+                            standardFlowEnabled: false
+                        budcustomer-web:
+                            attributes:
+                                post.logout.redirect.uris: https://admin.bud.example.com##https://customer.bud.example.com##https://playground.bud.example.com
+                            directAccessGrantsEnabled: true
+                            enabled: true
+                            implicitFlowEnabled: false
+                            protocol: openid-connect
+                            protocolMappers:
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.client.audience: budcustomer-web
+                                  name: aud-budcustomer-web
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                            publicClient: false
+                            redirectUris:
+                                - https://app.bud.example.com/auth/redirect/callback
+                                - https://customer.bud.example.com/*
+                            secret: golden-keycloak-budcustomer
+                            serviceAccountsEnabled: false
+                            standardFlowEnabled: true
+                            webOrigins:
+                                - +
+                        budplayground-web:
+                            attributes:
+                                post.logout.redirect.uris: https://playground.bud.example.com
+                            directAccessGrantsEnabled: true
+                            enabled: true
+                            implicitFlowEnabled: false
+                            protocol: openid-connect
+                            protocolMappers:
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.client.audience: budplayground-web
+                                  name: aud-budplayground-web
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                            publicClient: false
+                            redirectUris:
+                                - https://app.bud.example.com/auth/redirect/callback
+                            secret: golden-keycloak-budplayground
+                            serviceAccountsEnabled: false
+                            standardFlowEnabled: true
+                            webOrigins:
+                                - +
+                        mcp-gateway:
+                            attributes:
+                                post.logout.redirect.uris: https://admin.bud.example.com##https://customer.bud.example.com##https://playground.bud.example.com
+                            directAccessGrantsEnabled: true
+                            enabled: true
+                            implicitFlowEnabled: false
+                            protocol: openid-connect
+                            protocolMappers:
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.client.audience: mcp-gateway
+                                  name: aud-mcp-gateway
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                            publicClient: false
+                            redirectUris:
+                                - https://app.bud.example.com/auth/redirect/callback
+                            secret: golden-keycloak-mcpgateway
+                            serviceAccountsEnabled: false
+                            standardFlowEnabled: true
+                            webOrigins:
+                                - +
+                    spec:
+                        accessTokenLifespan: 1800
+                        duplicateEmailsAllowed: false
+                        enabled: true
+                        loginTheme: bud
+                        loginWithEmailAllowed: true
+                        realm: bud-keycloak
+                        registrationAllowed: false
+                        resetPasswordAllowed: true
+                        roles:
+                            realm:
+                                - name: super_admin
+                                - name: admin
+                                - name: user
+                        sslRequired: external
+                        ssoSessionIdleTimeout: 604800
+                        ssoSessionMaxLifespan: 604800
+                        users:
+                            - credentials:
+                                - temporary: false
+                                  type: password
+                                  value: root@example.com
+                              email: root@example.com
+                              emailVerified: true
+                              enabled: true
+                              firstName: Root
+                              lastName: Admin
+                              realmRoles:
+                                - super_admin
+                              username: root
+                            - clientRoles:
+                                realm-management:
+                                    - manage-users
+                                    - view-users
+                              enabled: true
+                              serviceAccountClientId: budapp-admin
+                              username: service-account-budapp-admin
+            registries:
+                registry.bud.studio:
+                    password: registry-secret
+                    username: robot
+    mongodb:
+        chartValueFiles:
+            - example.minimal.yaml
+        namespace: mongodb
+        source:
+            chart: mongodb
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.1
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+            psmdb-operator:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+            users:
+                bud_novu:
+                    db: bud_novu
+                    password: golden-mongodb
+                    roles:
+                        - db: bud_novu
+                          name: dbOwner
+    opensandbox:
+        chartValueFiles: []
+        namespace: opensandbox-system
+        source:
+            gitPath: infra/charts/opensandbox
+            gitRepoURL: https://github.com/BudEcosystem/bud-runtime.git
+            gitRevision: adc5eb4518b820e3452512fcf30fe4cb2e1da524
+        values:
+            opensandbox:
+                opensandbox-server:
+                    server:
+                        env:
+                            - name: OPENSANDBOX_SERVER_API_KEY
+                              value: golden-opensandbox-api
+            registries:
+                registry.bud.studio:
+                    password: registry-secret
+                    username: robot
+    postgres:
+        chartValueFiles:
+            - example.minimal.yaml
+        namespace: postgres
+        source:
+            chart: postgres
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.1
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+            cloudnative-pg:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+            poolers:
+                pooler-rw:
+                    template:
+                        spec:
+                            affinity:
+                                nodeAffinity:
+                                    preferredDuringSchedulingIgnoredDuringExecution:
+                                        - preference:
+                                            matchExpressions:
+                                                - key: bud.studio/control-plane
+                                                  operator: In
+                                                  values:
+                                                    - "true"
+                                          weight: 75
+                pooler-rw-txn:
+                    instances: 1
+                    pgbouncer:
+                        parameters:
+                            log_connections: "0"
+                            log_disconnections: "0"
+                            max_client_conn: "1000"
+                            server_idle_timeout: "120"
+                        poolMode: transaction
+                    template:
+                        metadata:
+                            labels:
+                                app: pooler-txn
+                        spec:
+                            affinity:
+                                nodeAffinity:
+                                    preferredDuringSchedulingIgnoredDuringExecution:
+                                        - preference:
+                                            matchExpressions:
+                                                - key: bud.studio/control-plane
+                                                  operator: In
+                                                  values:
+                                                    - "true"
+                                          weight: 75
+                                podAntiAffinity:
+                                    preferredDuringSchedulingIgnoredDuringExecution:
+                                        - podAffinityTerm:
+                                            labelSelector:
+                                                matchLabels:
+                                                    app: pooler-txn
+                                            topologyKey: kubernetes.io/hostname
+                                          weight: 100
+                            containers: []
+                    type: rw
+            users:
+                bud:
+                    databases:
+                        - budask
+                        - budapp
+                        - budcluster
+                        - budmetrics
+                        - budmodel
+                        - budsim
+                        - budeval
+                        - budevent
+                        - buddoc
+                        - budprompt
+                        - budcodeinterpreter
+                        - mcpgateway
+                        - budpipeline
+                        - onyx
+                        - budagent
+                    password: golden-postgres-bud
+                keycloak:
+                    databases:
+                        - keycloak
+                    password: golden-postgres-keycloak
+                seaweedfs:
+                    databases:
+                        - seaweedfs
+                    password: golden-postgres-seaweedfs
+    seaweedfs:
+        chartValueFiles:
+            - example.minimal.yaml
+        namespace: seaweedfs
+        source:
+            chart: seaweedfs
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.1.1
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+            buckets:
+                bud-eval-artifacts:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 10Gi
+                    reclaimPolicy: Delete
+                    versioning: "Off"
+                bud-model-info:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 1Gi
+                    reclaimPolicy: Delete
+                    versioning: "Off"
+                bud-models-registry:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 300Gi
+                    reclaimPolicy: Delete
+                    versioning: "Off"
+                bud-novu:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 1Gi
+                    reclaimPolicy: Delete
+                    versioning: "Off"
+                bud-terraform-state:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 1Gi
+                    reclaimPolicy: Retain
+                    versioning: Enabled
+            identity:
+                bud:
+                    accessKey: golden-s3-access
+                    secretKey: golden-s3-secret
+            ingress:
+                className: traefik
+                enabled: true
+                host: s3.bud.example.com
+                https: true
+                isTraefik: true
+            policy:
+                bud:
+                    identities:
+                        - bud
+                    statements:
+                        - actions:
+                            - s3:*
+                          effect: Allow
+                          resources:
+                            - bud-novu
+                            - bud-novu/*
+                            - bud-model-info
+                            - bud-model-info/*
+                            - bud-models-registry
+                            - bud-models-registry/*
+                            - bud-eval-artifacts
+                            - bud-eval-artifacts/*
+                            - bud-terraform-state
+                            - bud-terraform-state/*
+            postgres:
+                password: golden-postgres-seaweedfs
+            seaweedfs-operator:
+                affinity:
+                    nodeAffinity:
+                        preferredDuringSchedulingIgnoredDuringExecution:
+                            - preference:
+                                matchExpressions:
+                                    - key: bud.studio/control-plane
+                                      operator: In
+                                      values:
+                                        - "true"
+                              weight: 75
+                webhook:
+                    certManager:
+                        enabled: true
+    valkey:
+        chartValueFiles: []
+        namespace: valkey
+        source:
+            chart: valkey
+            repoURL: registry-1.docker.io/cloudpirates
+            targetRevision: 0.21.4
+        values:
+            affinity:
+                nodeAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - preference:
+                            matchExpressions:
+                                - key: bud.studio/control-plane
+                                  operator: In
+                                  values:
+                                    - "true"
+                          weight: 75
+                podAntiAffinity:
+                    preferredDuringSchedulingIgnoredDuringExecution:
+                        - podAffinityTerm:
+                            labelSelector:
+                                matchLabels:
+                                    app.kubernetes.io/name: valkey
+                            topologyKey: kubernetes.io/hostname
+                          weight: 100
+            architecture: replication
+            auth:
+                enabled: true
+                password: golden-valkey
+            config:
+                extraConfig:
+                    - notify-keyspace-events KEA
+            enabled: true
+            metrics:
+                enabled: false
+            persistence:
+                enabled: true
+                size: 1Gi
+            replicaCount: 1
+            resources:
+                limits:
+                    memory: 1Gi
+            sentinel:
+                enabled: false
+rootApplication:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Application
+    metadata:
+        name: bootstrap
+        namespace: argocd
+    spec:
+        destination:
+            namespace: argocd
+            server: https://kubernetes.default.svc
+        project: default
+        source:
+            directory:
+                include: production.yaml
+            path: appsets
+            repoURL: https://github.com/example/bud-config
+            targetRevision: main
+        syncPolicy:
+            automated:
+                enabled: false
+                selfHeal: true
+            syncOptions:
+                - CreateNamespace=true
+                - Prune=confirm

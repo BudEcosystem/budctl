@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 func sampleModel(t *testing.T, w, h int) *Model {
@@ -143,9 +143,9 @@ func TestSaveWritesBothFormats(t *testing.T) {
 	if len(jsonFiles) != 1 || len(mdFiles) != 1 {
 		t.Fatalf("expected one .json and one .md, got %v %v", jsonFiles, mdFiles)
 	}
-	var rep engine.Report
+	var rep check.Report
 	raw, _ := os.ReadFile(jsonFiles[0])
-	if err := json.Unmarshal(raw, &rep); err != nil || rep.Verdict != engine.NotReady || len(rep.Results) != 6 {
+	if err := json.Unmarshal(raw, &rep); err != nil || rep.Verdict != check.NotReady || len(rep.Results) != 6 {
 		t.Fatalf("saved JSON is not the report: %v %s %d", err, rep.Verdict, len(rep.Results))
 	}
 	if len(rep.Results[0].Gauges) == 0 && len(rep.Results[1].Gauges) == 0 {

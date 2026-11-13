@@ -1,5 +1,5 @@
 // Package tui is the interactive surface of budctl: a guided intake, a live
-// run, a summary and a browsable detail view. It is a view over engine.Report
+// run, a summary and a browsable detail view. It is a view over check.Report
 // and nothing else — the TUI and --output json derive from one result set, so
 // the two cannot disagree (FRD-020 G5).
 package tui
@@ -18,7 +18,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 )
 
 type appState int
@@ -30,14 +30,14 @@ const (
 	stateDetail
 )
 
-type startedMsg struct{ check *engine.Check }
-type finishedMsg struct{ result engine.Result }
-type doneMsg struct{ report engine.Report }
+type startedMsg struct{ check *check.Check }
+type finishedMsg struct{ result check.Result }
+type doneMsg struct{ report check.Report }
 
 // Model is the whole application.
 type Model struct {
-	ctx    *engine.Ctx
-	sel    engine.Selection
+	ctx    *check.Ctx
+	sel    check.Selection
 	runCtx context.Context
 	state  appState
 	width  int
@@ -61,7 +61,7 @@ type Model struct {
 	liveRisk   int
 
 	// results
-	report      engine.Report
+	report      check.Report
 	finished    bool
 	vp          viewport.Model
 	showSkipped bool
@@ -83,7 +83,7 @@ type Model struct {
 
 // New builds the model. skipSetup starts the run immediately, for an operator
 // who has already answered everything and asked not to be prompted.
-func New(ctx context.Context, c *engine.Ctx, sel engine.Selection, skipSetup bool, appsDomain string) *Model {
+func New(ctx context.Context, c *check.Ctx, sel check.Selection, skipSetup bool, appsDomain string) *Model {
 	m := &Model{
 		ctx: c, sel: sel, runCtx: ctx,
 		statusCh:    make(chan tea.Msg, 512),
@@ -123,8 +123,8 @@ func (m *Model) Init() tea.Cmd {
 // observer bridges the engine's streaming callbacks onto the message loop.
 type observer struct{ ch chan tea.Msg }
 
-func (o observer) CheckStarted(c *engine.Check)  { o.ch <- startedMsg{check: c} }
-func (o observer) CheckFinished(r engine.Result) { o.ch <- finishedMsg{result: r} }
+func (o observer) CheckStarted(c *check.Check)  { o.ch <- startedMsg{check: c} }
+func (o observer) CheckFinished(r check.Result) { o.ch <- finishedMsg{result: r} }
 
 // newProgress builds the run bar on Lip Gloss's colour profile rather than
 // letting Bubbles detect its own through termenv, so --no-color and NO_COLOR
@@ -143,8 +143,8 @@ func (m *Model) startRun() tea.Cmd {
 	m.planRun()
 	m.prog = newProgress()
 	go func() {
-		results := engine.Run(m.runCtx, m.ctx, m.sel, observer{ch: m.statusCh})
-		rep := engine.Summarize(results)
+		results := check.Run(m.runCtx, m.ctx, m.sel, observer{ch: m.statusCh})
+		rep := check.Summarize(results)
 		rep.Stamp(m.ctx)
 		m.statusCh <- doneMsg{report: rep}
 	}()
@@ -154,7 +154,7 @@ func (m *Model) startRun() tea.Cmd {
 // planRun lays out the group rows before the first check starts, so the screen
 // shows the whole shape of the run rather than growing as groups appear.
 func (m *Model) planRun() {
-	for _, ch := range engine.All() {
+	for _, ch := range check.All() {
 		if !wants(m.sel, ch) {
 			continue
 		}
@@ -166,7 +166,7 @@ func (m *Model) planRun() {
 	}
 }
 
-func wants(sel engine.Selection, ch *engine.Check) bool {
+func wants(sel check.Selection, ch *check.Check) bool {
 	for _, s := range sel.Skip {
 		if s == ch.Group || s == ch.ID {
 			return false
@@ -332,7 +332,7 @@ func (m *Model) View() string {
 
 // Report is the finished report, so the caller sets the exit code from the
 // same result set the operator just read.
-func (m *Model) Report() engine.Report { return m.report }
+func (m *Model) Report() check.Report { return m.report }
 
 // Aborted reports whether the operator quit before a run completed.
 func (m *Model) Aborted() bool { return m.aborted }
@@ -352,7 +352,7 @@ func (m *Model) save() {
 }
 
 // Run starts the interactive program.
-func Run(ctx context.Context, c *engine.Ctx, sel engine.Selection, skipSetup bool, appsDomain string) (engine.Report, bool, error) {
+func Run(ctx context.Context, c *check.Ctx, sel check.Selection, skipSetup bool, appsDomain string) (check.Report, bool, error) {
 	m := New(ctx, c, sel, skipSetup, appsDomain)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	final, err := p.Run()

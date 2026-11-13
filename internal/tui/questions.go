@@ -5,9 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BudEcosystem/budctl/internal/adapters"
-	"github.com/BudEcosystem/budctl/internal/engine"
+	"github.com/BudEcosystem/budctl/check"
 	"github.com/BudEcosystem/budctl/internal/intake"
+	"github.com/BudEcosystem/budctl/internal/net"
+	"github.com/BudEcosystem/budctl/internal/oci"
 )
 
 // questions is the intake as plain data: the values the form binds to, and the
@@ -19,7 +20,7 @@ import (
 // (FRD-020 §7). Each consequence method therefore states what the current value
 // will be checked against, and it is shown live under the field.
 type questions struct {
-	ctx *engine.Ctx
+	ctx *check.Ctx
 
 	Domain       string
 	TLS          string
@@ -43,7 +44,7 @@ type questions struct {
 // the command line or in an answers file, so the form is a confirmation for a
 // scripted run and a questionnaire for a cold one — never a second source of
 // truth.
-func newQuestions(c *engine.Ctx, appsDomain string) *questions {
+func newQuestions(c *check.Ctx, appsDomain string) *questions {
 	a := c.Answers
 	q := &questions{
 		ctx:          c,
@@ -145,7 +146,7 @@ func (q *questions) validateCABundle(v string) error {
 	if v == "" {
 		return nil // optional: a publicly trusted chain needs no extra root
 	}
-	if _, err := adapters.LoadCABundle(v); err != nil {
+	if _, err := net.LoadCABundle(v); err != nil {
 		return fmt.Errorf("%v", err)
 	}
 	return nil
@@ -281,7 +282,7 @@ func (q *questions) probeConsequence() string {
 // ── applying ────────────────────────────────────────────────────────────────
 
 // apply writes the answers onto the context the checks will read.
-func (q *questions) apply(c *engine.Ctx) {
+func (q *questions) apply(c *check.Ctx) {
 	a := c.Answers
 	a.Domain = strings.TrimSpace(q.Domain)
 	a.TLS = intake.TLSMethod(q.TLS)
@@ -323,9 +324,9 @@ func (q *questions) apply(c *engine.Ctx) {
 	}
 	if a.RegistryUser != "" {
 		if c.Opts.RegistryCreds == nil {
-			c.Opts.RegistryCreds = map[string]adapters.Credential{}
+			c.Opts.RegistryCreds = map[string]oci.Credential{}
 		}
-		c.Opts.RegistryCreds["registry.bud.studio"] = adapters.Credential{
+		c.Opts.RegistryCreds["registry.bud.studio"] = oci.Credential{
 			Username: a.RegistryUser, Password: a.RegistryPass,
 		}
 	}

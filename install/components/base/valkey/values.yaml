@@ -1,0 +1,23 @@
+enabled: true
+architecture: "replication"
+replicaCount: 3
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: "valkey"
+        weight: 100
+metrics:
+  enabled: false
+persistence:
+  enabled: true
+  size: "1Gi"
+sentinel:
+  # only creates master srv when sentinel is disabled
+  enabled: false
+auth:
+  enabled: true
+  password: "valkey"

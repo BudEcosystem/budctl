@@ -16,8 +16,12 @@ The plan has three goals:
 3. **Make the code a UI-free library**, so a TUI can later be built on top of it
    without touching business logic.
 
-> Paths below are relative to this directory. Line numbers refer to the tree at
-> commit `170ac94`.
+> Paths below are relative to this directory. Line numbers in §1 refer to the
+> tree at commit `170ac94`, before the refactor.
+>
+> **Status (2026-11-10):** Steps 0–6 are implemented. §1 describes the code as
+> it was; §4 and §6 describe it as it is now, including where it departs from
+> the original plan.
 
 ---
 
@@ -212,67 +216,82 @@ Patterns budctl should take from it:
 
 ## 4. Target layout
 
+This is the layout as implemented (Steps 0–6).
+
 ```
-cmd/budctl/main.go       cli.NewDefaultCommand().Execute(); ExitError → os.Exit(code)
+cmd/budctl/main.go       cli.NewDefaultCommand().ExecuteContext(ctx); cli.ExitCode(err) → os.Exit
 
 internal/cli/            cobra only. No business logic, the only package allowed to
-  root.go                touch stdin/stdout/terminal. Global flags --kubeconfig,
-  check.go               --context, -n/--namespace, --no-color, -o/--output.
-  install.go             PersistentPreRunE builds k8s.Client → cmd.Context().
-  status.go
+  root.go                touch stdin/stdout/terminal. Global flags --kubeconfig and
+  check.go               --context; PersistentPreRunE builds k8s.Client once for
+  install.go             commands annotated budctl/kube=required|optional and puts
+  status.go              it in cmd.Context(). Nothing prompts: every input is a flag.
+  lifecycle.go           uninstall, sysdump, values view
   cleanup.go
   version.go
-  prompt.go              huh forms (moved from internal/install/prompt.go)
-  exit.go                ExitError{Code int}
+  cmdref.go              hidden: regenerates docs/cmdref
+  exit.go                ExitError{Code int}, ExitCode(err)
 
-defaults/                Version, Commit (ldflags), ArgoCD chart ref/version,
-                         namespaces, timeouts, default branch/ingress/model Gi
+defaults/                Version, Commit (ldflags), ArgoCD chart ref/version and
+                         namespace, sync timeouts, default branch/ingress/capacity
 
-k8s/                     Client  ← internal/adapters/kube.go + helm_getter.go
-                         (Object helpers stay, as k8s.Object)
+k8s/                     Client  ← internal/adapters/kube.go, Object, NodeStats,
+                         plus fresh (uncached) ArgoCD reads, finalizers, delete
 
 check/                   ← internal/engine  (Check, Result, Report, Run, Observer,
-                           Selection, Ctx, Parameters)
+                           Selection, Ctx)
 check/checks/            ← internal/checks  (one file per group, init() register)
 
-install/                 Parameters, Installer, phases, State, GeneratedSecrets, Spec
-install/components/      the component table (§5.1): single source of truth
+install/                 Installer (Plan → Apply), Phase, Observer, Parameters,
+                         Render, Overrides, State, DetectDefaults, Uninstall
+install/spec/            Spec, TLS modes, Missing(), Validate(), GeneratedSecrets.
+                         A leaf, so components can use it without an import cycle
+install/components/      the component table (§5.1) + base/ (embedded shared layers)
 install/appset/          typed ApplicationSet/Application builders (struct → YAML)
-install/gitops/          clone, write bundle, .sops.yaml, commit, push
-                         (← workspace.go minus everything template-related)
+install/gitops/          clone, write files, .sops.yaml, .budctl.yaml marker,
+                         commit, push
 
-status/                  NEW: ArgoCD Application sync/health per component, --wait
-output/                  table/json/junit + Save (← internal/output, tui.SaveReport)
+status/                  ArgoCD Application sync/health per environment, Wait
+sysdump/                 zip of ArgoCD state, nodes, pods, events, logs
+output/                  table/json/junit + Save/Markdown
 
-internal/helm            ← adapters/helm.go
-internal/sops            ← adapters/sops.go
-internal/net, internal/oci, internal/probes, internal/intake   (unchanged content)
+internal/helm            ← adapters/helm.go + helm_getter.go   (helm.Client)
+internal/sops            ← adapters/sops.go                    (sops.Client)
+internal/net             ← adapters/net.go                     (net.Client)
+internal/oci             ← adapters/oci.go, Credential         (oci.Client)
+internal/probes, internal/intake                               (unchanged content)
+internal/lint            repository-wide architecture tests (§4.1 rule 1)
 
-tui/                     FROZEN: kept compiling, not wired into any command.
+internal/tui/            FROZEN: compiles and is tested, imported by no command.
                          Rebuilt later on check.Observer + install.Observer.
 ```
 
+`adapters` became five packages, and each type is named `Client` with a `New`
+constructor (`net.Client` rather than `net.Net`). The Helm REST getter moved to
+`internal/helm`, since only Helm uses it.
+
 The command layer lives in `internal/cli`, not at the root. Its only importers
 (`cmd/budctl`, and later a TUI) are in this module. It is also the package
-that changes most often (flags, prompts, exit codes), so it should not be a
-public API. The libraries below it stay public, so other code can still drive
-budctl without the CLI. If an external binary ever needs to embed the command
-tree, promote `internal/cli` → `cli/` and add cilium-style `api.Hooks` then.
-Going from internal to public breaks no importers. Going the other way would.
+that changes most often (flags, exit codes), so it should not be a public API.
+The libraries below it stay public, so other code can still drive budctl
+without the CLI. If an external binary ever needs to embed the command tree,
+promote `internal/cli` → `cli/` and add cilium-style `api.Hooks` then. Going
+from internal to public breaks no importers. Going the other way would.
 
 ### 4.1 Rules that keep the library TUI-ready
 1. **No terminal I/O below `internal/cli`.** Library packages never read
-   `os.Stdin`, never call `term.IsTerminal`, and never print to `os.Stdout`.
-   Output goes to an `io.Writer`/`Logger` the caller passes in. A
-   `go vet`-style test greps for `fmt.Print`, `os.Stdout` and `charmbracelet`
-   outside `internal/cli/` and `tui/`.
+   `os.Stdin`, never import a terminal library, and never print to
+   `os.Stdout`. Output goes to an `io.Writer` or Observer the caller passes in.
+   `internal/lint` enforces it: it fails on `fmt.Print*`, `os.Stdout`,
+   `os.Stdin`, `charmbracelet/*` or `golang.org/x/term` outside `cmd/`,
+   `internal/cli/` and `internal/tui/`.
 2. **Typed events.** Long-running operations report through an interface,
    not strings:
    ```go
-   // check (exists today as engine.Observer)
+   // check
    type Observer interface { CheckStarted(*Check); CheckFinished(Result) }
 
-   // install (new)
+   // install
    type Observer interface {
        PhaseStarted(Phase)
        Step(Phase, string)
@@ -281,18 +300,19 @@ Going from internal to public breaks no importers. Going the other way would.
    ```
    The CLI implements these as line-printers. A future TUI implements them as
    Bubble Tea messages, as `internal/tui/app.go:146` already does for checks.
-3. **Questions are data, not calls.** The library exposes `Spec`,
-   `Spec.Validate()`, `DetectDefaults(ctx, client, *Spec)` and a
-   `Spec.Missing() []Field` list. Each frontend decides how to ask:
-   - `internal/cli/prompt.go` with huh
-   - flags with `--no-prompt`
-   - TUI forms later
+3. **Questions are data, not calls.** The library exposes `spec.Spec`,
+   `Spec.Validate()`, `DetectDefaults(ctx, client, *Spec)` and
+   `Spec.Missing() []Field`. `Installer.Plan` returns a `*MissingError`
+   listing every unset field. The CLI maps each field to its flag and prints
+   them all in one error; a TUI would build a form from the same list.
 4. **Confirmation is a callback.** `Installer.Confirm func(question string) (bool, error)`
-   is injected. Without it, `Run` refuses irreversible phases unless
-   `Parameters.Yes` is set.
-5. **Phases are resumable units.** Each phase loads state, does its work,
-   saves state, then emits `PhaseFinished`. A UI can render, retry or skip
-   them without knowing what they do inside.
+   can be injected. Without it, `Apply` refuses the irreversible steps (push,
+   cluster installation) unless `Parameters.Yes` is set. The CLI injects none,
+   so `install` needs `--yes`.
+5. **Phases are resumable units.** Each phase does its work, saves state, then
+   emits `PhaseFinished`. `Plan` (Select, Generate, Render) and `Apply`
+   (Prepare, Push, Bootstrap, ExportCA, Complete) are separate calls, so a
+   frontend can show the plan before anything irreversible happens.
 
 ---
 
@@ -413,8 +433,8 @@ generator elements and `templatePatch`. They are emitted with `yaml.Marshal`:
   one-line notice listing them. Deletion is left to the user.
 - **Old resume state.** Unknown `templateRepo`/`templateRef` YAML fields are
   ignored on load, and generated secrets are reused as before.
-- **Flags.** `--plan` becomes a hidden alias of `--dry-run`, and the documented
-  exit codes are unchanged.
+- **Flags.** `--plan` is replaced by `--dry-run`, and the documented exit codes
+  are unchanged.
 
 ### 5.6 New install surfaces
 - `budctl install --dry-run`: the plan summary plus the file list, with no
@@ -433,105 +453,157 @@ Each step is one PR, `go test ./...` and `go vet ./...` stay green, and
 behaviour is unchanged unless the step says otherwise.
 
 ### Step 0: safety net (golden tests)
-- [ ] Golden test of the **current** install output for a matrix of
+- [x] Golden test of the install output for a matrix of
   `TLS ∈ {acme-dns01, acme-http01, self-signed, internal-ca, external}` ×
-  `BudStudio ∈ {on, off}` × `OpenShift ∈ {on, off}`. It records:
-  - every bundle artifact (decrypted secrets, using a fixed age identity and
-    fixed `GeneratedSecrets`)
-  - the AppSet hydrated from a vendored copy of the template at `9b4ac59`
-- [ ] For each case, also record the **effective values per component**: chart
-  files skipped, template base layers + env overlay merged in list order. This
-  is the parity target for Step 4.
-- [ ] Golden test of `check` table and JSON output and exit codes against the
-  existing fake-kube harness (`internal/checks/harness_test.go`).
+  `BudStudio ∈ {on, off}` × `OpenShift ∈ {on, off}` (20 cases,
+  `install/golden_test.go`). It uses a fixed age identity, fixed
+  `GeneratedSecrets` and a fixed test CA, and records per case:
+  - `<case>.artifacts.yaml`: every generated file, secrets decrypted. It was
+    recorded against the AppSet hydrated from a vendored copy of the template
+    at `9b4ac59`, then regenerated in Step 4, when the layout changed.
+  - `<case>.effective.yaml`: per component, the AppSet's `valueFiles` merged
+    in order (chart-internal files listed, not merged), plus the AppSet
+    template, the root Application and the ArgoCD bootstrap values. This is
+    the parity target.
+- [x] Golden test of `check` table, JSON and JUnit output for three synthetic
+  clusters (healthy vanilla, broken vanilla, healthy OpenShift), limited to the
+  groups that make no network call (`check/checks/golden_test.go`). The
+  verdict → exit code mapping is unit-tested (`verdictExitCode`).
+- Rewrite with `go test ./install ./check/checks -run Golden -update`.
 
 ### Step 1: cobra skeleton
-- [ ] Add `internal/cli/` with `root.go` and the global flags `--kubeconfig`, `--context`,
-  `-n`, `--no-color` and `-o/--output`.
-- [ ] Add `check`, `install`, `cleanup`, `version` and `completion` commands that
-  bind the same flags as today. Each command registers only the flags it uses.
-- [ ] Split `config` into per-command parameter structs. `applyAnswerFlags` and
+- [x] Add `internal/cli/` with `root.go` and the global flags `--kubeconfig` and
+  `--context`. `-o/--output` and `--no-color` are registered on `check` only,
+  because no other command uses them. `-n/--namespace` is deferred until a
+  command has a namespace for it to mean (today there are only
+  `--probe-namespace` and `--argocd-namespace`, both on `check`).
+- [x] Add `check`, `install`, `cleanup`, `version` and `completion` commands that
+  bind the same flags as today. Each command registers only the flags it uses,
+  so `cleanup` now rejects the intake flags it used to ignore.
+- [x] Split `config` into per-command parameter structs (`checkParams`,
+  `installParams`, with the shared `intakeFlags`). `applyAnswerFlags` and
   `applyInstallFlags` move with them.
-- [ ] Add `cli.ExitError{Code}`. `main.go` becomes
-  `cli.NewDefaultCommand().Execute()` + code mapping, about 15 lines.
-- [ ] Keep `budctl` with no args = `budctl check` for compatibility.
-- Exit criteria: the Step 0 goldens pass, and `budctl --help` and `budctl check --help`
-  are generated by cobra.
+- [x] Add `cli.ExitError{Code}`. `main.go` becomes
+  `cli.NewDefaultCommand().ExecuteContext(ctx)` + `cli.ExitCode(err)`.
+- [x] Keep `budctl` with no command = `budctl check` for compatibility, and keep
+  the Go-flag spelling `-flag` working by rewriting it to `--flag`
+  (`normalizeArgs`).
+- [x] Pulled forward from Step 3: `check` no longer opens the TUI, even on a
+  terminal. It always prints the plain report, and a missing domain fails
+  with exit 3, as a non-terminal run did before. `--no-tui`, `--tui`,
+  `--theme` and `--no-prompt` are removed (pre-release: no deprecated
+  aliases). The report writer moved to `output.Save` /
+  `output.Markdown` so that `check --save` does not import `tui`.
+- Exit criteria: `budctl --help` and `budctl check --help` are generated by
+  cobra, and the Step 0 goldens (landed after this step) pass. Also covered by
+  `internal/cli/cli_test.go` (arg
+  normalization, flag scoping, exit codes, generated help).
 
 ### Step 2: lift the library out of `internal/`
-- [ ] `internal/adapters/kube.go` and `helm_getter.go` → `k8s/` (`k8s.Client`, `k8s.Object`).
-- [ ] `internal/engine` → `check/`, and `internal/checks` → `check/checks/`.
-  Keep the `init()` registration. Keep the CI failure-coverage gate.
-- [ ] `internal/output` → `output/`, and move `tui.SaveReport` → `output.Save`.
-- [ ] Add `defaults/` with `Version` and `Commit`, and update the `release.sh`
-  ldflags to `-X github.com/BudEcosystem/budctl/defaults.Version=…`.
-- [ ] Root `PersistentPreRunE` builds the client once. On failure it stores
-  the error for `check` (the toolchain check reports it), and fails fast for
-  `install`/`status`.
-- Exit criteria: no behaviour change, and the goldens pass.
+- [x] `internal/adapters` → `k8s/` (`k8s.Client`, `k8s.Object`, `k8s.NodeStats`)
+  plus `internal/net`, `internal/oci`, `internal/helm` (with the REST getter)
+  and `internal/sops`, each with a `Client` type and `New`.
+- [x] `internal/engine` → `check/`, and `internal/checks` → `check/checks/`.
+  The `init()` registration and the failure-coverage gate are unchanged.
+- [x] `internal/output` → `output/`. Colour detection (it inspects stdout)
+  moved to `internal/cli`.
+- [x] `defaults/` with `Version` and `Commit`; `release.sh` stamps
+  `-X github.com/BudEcosystem/budctl/defaults.Version=…`.
+- [x] Root `PersistentPreRunE` builds the client once for commands annotated
+  `budctl/kube`. `check` and `install` take it as optional (the error becomes
+  a finding, or a reason not to bootstrap); `status`, `cleanup`, `uninstall`
+  and `sysdump` require it.
+- Exit criteria met: the Step 0 goldens passed unchanged.
 
 ### Step 3: separate UI from the library
-- [ ] Move `install.Prompt`/`Confirm` → `internal/cli/prompt.go`. `internal/install`
-  no longer imports `huh`.
-- [ ] Add `install.Installer{Params, Client, Log, Observer, Confirm}` and
-  `Run(ctx)` with phases:
-  `Select → Generate → Render → Prepare → Push → Bootstrap → ExportCA → Complete`.
-  Save state after each phase, using the same names already persisted
-  (`selected/generated/prepared/pushed/complete`).
-- [ ] Move the body of `runInstall` into those phases.
-  `internal/cli/install.go` shrinks to: bind flags, resolve the spec, prompt if
-  interactive, `Installer.Run`, print the summary.
-- [ ] Replace `Bootstrap`'s `progress func(string)` with `Observer.Step`.
-- [ ] Detach `tui/`: no command imports it. Keep it compiling, either behind a
-  `//go:build tui` tag or with a single `tui_test.go` build check.
-- [ ] Add a lint test: no `fmt.Print*`, `os.Stdout`, `os.Stdin` or
-  `charmbracelet/*` imports outside `internal/cli/` and `tui/`.
-- Exit criteria: goldens pass, and `budctl install --plan --no-prompt …` output
-  is byte-identical.
+Changed from the original plan: **install is flags-only**. Nothing prompts, so
+there is no `internal/cli/prompt.go` and `huh` is no longer linked into the
+binary (only the frozen TUI uses it).
+- [x] `install.Prompt`/`Confirm` deleted; `install` no longer imports `huh`.
+  `DetectDefaults` stays in `install/detect.go`.
+- [x] `install.Installer{Params, Client, ClientErr, Observer, Confirm}` with
+  `Plan(ctx)` (Select → Generate → Render) and `Apply(ctx, plan)` (Prepare →
+  Push → Bootstrap → ExportCA → Complete), and `Run` for both. State is saved
+  under the names already persisted (`selected/generated/prepared/pushed/complete`).
+  The Spec is saved before validation, so a run that stops on a missing flag
+  keeps everything else.
+- [x] `internal/cli/install.go` binds flags, calls `Plan`, prints the plan,
+  calls `Apply`, prints the summary. A `*MissingError` is printed as every
+  missing flag at once.
+- [x] `Bootstrap`'s `progress func(string)` became `Observer.Step`.
+- [x] Detach `tui/` (done in Step 1).
+- [x] `internal/lint` enforces §4.1 rule 1.
+- Behaviour changes, deliberate:
+  - `install` needs `--yes` to push or touch the cluster; without it the plan
+    is printed and nothing changes (exit 3). There is no interactive confirm.
+  - An unreachable cluster now fails **before** the push when bootstrap would
+    run, instead of after it. `--no-bootstrap` still pushes without a cluster.
+  - `--no-prompt` is removed; install never prompts.
 
 ### Step 4: key-based install
-- [ ] Add `install/components` with the table from §5.1. Port each template base
-  file at `9b4ac59` into its component's `Base(spec)`, and move each
-  `render.go` `*Values` / `*Secrets` function into its component.
-- [ ] Add `install/appset` with typed builders for the AppSet and root
-  Application. Delete `templates.go`.
-- [ ] `RenderWithSecrets` iterates the table:
-  - merge Base ⊕ Values ⊕ overrides
-  - emit `values.<env>.yaml` and `secrets.<env>.yaml`
-  - build the AppSet from the same data
-- [ ] `Bootstrap` takes the ArgoCD values from the table in memory and syncs
-  children by `SyncWave`.
-- [ ] Add `--values <comp>=file`, `--set`, `--set-string`, `--set-file`, `--set-json`,
-  and `--set-secret` to `install`, parsed with Helm `values.Options`/`strvals`,
-  routed by component prefix.
-- [ ] Delete the template code paths listed in §5.4. Add the `.budctl.yaml`
-  marker and old-repo detection (§5.5).
-- [ ] **Parity test.** For every matrix case, the merged values per component
-  equal the Step 0 effective values. Differences are allowed only where they
-  are listed and justified in the test.
-- [ ] Unit tests for override routing, precedence, an unknown component, and
-  a `{{ include … }}` value surviving round-trip unchanged.
-- Exit criteria: installs work with no network access to the template repo,
-  and a chart bump is a one-line change in `install/components`.
+- [x] `install/components` holds the table from §5.1. Deviation: the base
+  layers are **embedded verbatim as YAML** (`install/components/base/`, the 16
+  files from `9b4ac59`) and selected per Spec by `BaseFiles`, instead of being
+  hand-ported to Go maps. They stay diffable against the template, and are
+  still built into the binary. `render.go`'s `*Values`/`*Secrets` functions
+  moved to `install/components/values.go`.
+- [x] `Spec` and `GeneratedSecrets` moved to the leaf `install/spec` so the
+  subpackages can use them without an import cycle.
+- [x] `install/appset` builds the AppSet and root Application as structs.
+  `templates.go` and every `text/template` path are gone.
+- [x] `install.Render` iterates the table: Base ⊕ Values ⊕ overrides into one
+  `values.<env>.yaml` per component, credentials ⊕ `--set-secret` into one
+  `secrets.<env>.yaml`, and the AppSet elements from the same data.
+- [x] Bootstrap uses the ArgoCD values from memory and syncs children by
+  `SyncWave` from the table.
+- [x] `--values <comp>=file`, `--set`, `--set-string`, `--set-file`,
+  `--set-json`, `--set-secret`, parsed with Helm's `strvals` in Helm's order and
+  routed by component. They are stored in the encrypted resume state
+  (`Spec.Values`/`SecretValues`), so a resumed run keeps them.
+- [x] Template code removed (§5.4); `--template-repo`/`--template-ref` are
+  removed. `.budctl.yaml` marker written; a repository
+  is accepted when it has the marker, `appsets/`, template-era files, or is
+  empty. Template-era files are listed after install, and flagged when they
+  differ from the embedded defaults (hand edits that no longer apply).
+- [x] **Parity test.** All 20 `effective.yaml` goldens are byte-identical to
+  the ones recorded from the template-based installer. No differences needed
+  justifying.
+- [x] Unit tests for override routing and precedence, unknown and disabled
+  components, `--set-secret` encryption, and `{{ include … }}` / ArgoCD
+  template expressions surviving unchanged.
+- Exit criteria met: no template repository is contacted, and a chart bump is
+  one `Version` field in `install/components/components.go`.
 
 ### Step 5: cilium-style command additions
-- [ ] `budctl install --dry-run`, `--dry-run-values`, `--dry-run=manifests`
-  (§5.6), with `--plan` kept as a hidden alias.
-- [ ] `budctl status [--wait] [--wait-duration]` reports each component's
-  ArgoCD Application sync and health, plus the root Application. It lives in
-  `status/` and supports `-o json`.
-- [ ] `budctl version`: the client version, plus the deployed Bud chart and
-  ArgoCD versions when a cluster is reachable. `--client` skips the cluster.
-- [ ] Follow-ups, each its own PR: `budctl uninstall` (delete root
-  Application, wait for prune), `budctl sysdump` (collect ArgoCD app status,
-  pod logs and events into a zip, like cilium's `sysdump/`), and
-  `budctl values view` (print committed merged values for an environment).
+- [x] `budctl install --dry-run` (plan plus file list), `--dry-run=manifests`,
+  `--dry-run-values [--component c] [--show-secrets]`. A dry run saves no state.
+- [x] Added after e2e testing: `budctl install --dry-run=render [--component c]
+  [--render-dir d]` pulls every component's chart and templates it client-side
+  with the exact values ArgoCD will pass (chart files, values, secrets, in
+  `valueFiles` order). It is `helm template` for the whole platform, with no
+  cluster changes, and is the fast way to test a values change.
+- [x] `budctl status [--environment] [--wait] [--wait-duration] [-o json]` in
+  `status/`: the root Application and each environment's Applications (found
+  by ApplicationSet owner reference). Exit 0 all Synced and Healthy, 1 not (or
+  `--wait` timed out), 3 cannot read the cluster or no ArgoCD.
+- [x] `budctl version`: client version, Kubernetes version, and each
+  environment's Bud and ArgoCD chart versions; `--client` skips the cluster.
+- [x] `budctl uninstall --environment E --yes` (`install.Uninstall`): deletes
+  the root Application and the ApplicationSet (orphaning), then prunes each
+  component's Application in reverse wave order through ArgoCD's resources
+  finalizer, waiting for each. The `argocd` Application is released without
+  pruning, so ArgoCD keeps running; the repository is untouched.
+- [x] `budctl sysdump`: zip of ArgoCD Applications/ApplicationSets, nodes, and
+  each platform namespace's pods, events and container log tails. No secrets.
+- [x] `budctl values view`: clones the repository and prints each component's
+  committed values; `--show-secrets` decrypts with the recovery key. Defaults
+  come from the last install's resume state.
 
 ### Step 6: docs
-- [ ] Rewrite `README.md` usage for the cobra commands, `--set` examples, and
-  `--dry-run`.
-- [ ] Generate a command reference (`budctl cmdref` → `docs/cmdref/`) the way
-  cilium does with `cmdref.NewCmd`.
+- [x] `README.md` rewritten for the cobra commands, flags-only install,
+  `--set`/`--values`, `--dry-run*`, status and uninstall.
+- [x] `budctl cmdref` (hidden) regenerates `docs/cmdref/` with
+  `cobra/doc.GenMarkdownTree`.
 
 ### Step 7: TUI on top of the library (out of scope, for later)
 - `tui/` depends only on `check`, `install`, `status`, `output` and `k8s`.
@@ -545,9 +617,8 @@ behaviour is unchanged unless the step says otherwise.
 ---
 
 ## 7. Risks and open items
-- **Porting base layers by hand.** The 16 template base values files total
-  about 750 lines of YAML. The Step 0 parity test is what makes the port safe. Do
-  not skip it.
+- **Porting base layers.** Resolved: the 16 base files are embedded verbatim,
+  and the Step 0 parity test passed with no differences.
 - **Chart-internal value files.** `example.minimal.yaml` is referenced
   *inside* the kafka, mongodb, clickhouse, postgres and seaweedfs charts. It
   stays in `ChartValueFiles` and is still resolved by ArgoCD, not merged by
@@ -559,5 +630,15 @@ behaviour is unchanged unless the step says otherwise.
   combine the two upgrades.
 - **Exit codes and `--output json`** are part of the CI contract in
   `README.md`. The goldens from Step 0 guard them throughout.
-- **CI failure-coverage gate** (`.github/workflows`, `internal/checks` tests).
+- **CI failure-coverage gate** (`.github/workflows`, `check/checks` tests).
   Update package paths in Step 2 without weakening the gate.
+
+### Flags shared by check and install (2026-11-11)
+- One name per setting in both commands: `--repo` (was `--config-repo` on
+  check), `--repo-key` (was `--repo-ssh-key`), one `--tls` set
+  (`acme-dns01 | acme-http01 | self-signed | internal-ca | external`; check
+  reads the non-ACME modes as a provided certificate), `--values
+  <component>=<file>` (check uses `bud=`), and a global `--no-color`.
+- check accepts every install flag, hidden and ignored when it has no use
+  for it, so an install command line can be checked unchanged.
+- Pre-release, so no deprecated aliases: the old names are removed.
