@@ -232,15 +232,16 @@ func (r *Runner) events(ctx context.Context, name string) []string {
 }
 
 // ProvisionPVC creates a claim with a consumer pod and reports whether it
-// bound. The consumer is mandatory: a WaitForFirstConsumer class never binds
-// without one, and testing without it would report every such class as broken.
-func (r *Runner) ProvisionPVC(ctx context.Context, name, storageClass, size string, timeout time.Duration) (bound bool, phase string, events []string, err error) {
+// bound, and the capacity the bound claim reports. The consumer is mandatory:
+// a WaitForFirstConsumer class never binds without one, and testing without it
+// would report every such class as broken.
+func (r *Runner) ProvisionPVC(ctx context.Context, name, storageClass, size string, timeout time.Duration) (bound bool, phase, capacity string, events []string, err error) {
 	if err := r.Ensure(ctx); err != nil {
-		return false, "", nil, err
+		return false, "", "", nil, err
 	}
 	q, err := resource.ParseQuantity(size)
 	if err != nil {
-		return false, "", nil, err
+		return false, "", "", nil, err
 	}
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -259,7 +260,7 @@ func (r *Runner) ProvisionPVC(ctx context.Context, name, storageClass, size stri
 	}
 	pvcClient := r.kube.Clientset.CoreV1().PersistentVolumeClaims(r.name)
 	if _, err := pvcClient.Create(ctx, pvc, metav1.CreateOptions{}); err != nil {
-		return false, "", nil, fmt.Errorf("create probe PVC: %w", err)
+		return false, "", "", nil, fmt.Errorf("create probe PVC: %w", err)
 	}
 	defer func() {
 		delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -292,16 +293,19 @@ func (r *Runner) ProvisionPVC(ctx context.Context, name, storageClass, size stri
 		if gerr == nil {
 			phase = string(got.Status.Phase)
 			if got.Status.Phase == corev1.ClaimBound {
-				return true, phase, nil, nil
+				if c, ok := got.Status.Capacity[corev1.ResourceStorage]; ok {
+					capacity = c.String()
+				}
+				return true, phase, capacity, nil, nil
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return false, phase, r.pvcEvents(ctx, name), ctx.Err()
+			return false, phase, "", r.pvcEvents(ctx, name), ctx.Err()
 		case <-time.After(3 * time.Second):
 		}
 	}
-	return false, phase, r.pvcEvents(ctx, name), nil
+	return false, phase, "", r.pvcEvents(ctx, name), nil
 }
 
 func (r *Runner) pvcEvents(ctx context.Context, name string) []string {

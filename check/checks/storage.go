@@ -9,6 +9,7 @@ import (
 
 	"github.com/BudEcosystem/budctl/check"
 	"github.com/BudEcosystem/budctl/k8s"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // The storage group answers one question — "will the claims this install
@@ -675,7 +676,7 @@ func init() {
 			}
 
 			per := stPerClassTimeout(ctx, len(cands))
-			bound, failed, sched := []string{}, []string{}, []string{}
+			bound, failed, sched, oversized := []string{}, []string{}, []string{}, []string{}
 			evidence := []check.Evidence{}
 			for i, sc := range cands {
 				name := fmt.Sprintf("budctl-probe-%d", i)
@@ -686,17 +687,22 @@ func init() {
 				// rather than thorough: a WaitForFirstConsumer class binds
 				// nothing until a pod referencing the claim is scheduled, so a
 				// claim-only probe would report every such class as broken.
-				ok, phase, events, err := c.Probes.ProvisionPVC(ctx, name, sc.Name, "1Gi", per)
+				ok, phase, capacity, events, err := c.Probes.ProvisionPVC(ctx, name, sc.Name, stProbeSize, per)
 				out := strings.Join(events, "\n")
 				if err != nil {
 					out = strings.TrimSpace(out + "\n" + err.Error())
 				}
 				evidence = append(evidence, check.Evidence{
-					What:   fmt.Sprintf("1Gi PVC + consumer pod in class %s (namespace %s), phase=%s", sc.Name, c.Probes.Namespace(), stOrUnset(phase)),
+					What: fmt.Sprintf("1Gi PVC + consumer pod in class %s (namespace %s), phase=%s, capacity=%s",
+						sc.Name, c.Probes.Namespace(), stOrUnset(phase), stOrUnset(capacity)),
 					Output: stOrUnset(out),
 				})
 				if ok {
 					bound = append(bound, fmt.Sprintf("%s (%s, %s)", sc.Name, sc.Provisioner, stOrUnset(sc.Binding)))
+					if stOversized(capacity) {
+						oversized = append(oversized, fmt.Sprintf("%s (%s): asked for %s, the bound claim reports %s",
+							sc.Name, sc.Provisioner, stProbeSize, capacity))
+					}
 					continue
 				}
 				// A pod that never schedules and a provisioner that never
@@ -726,6 +732,18 @@ func init() {
 						stQuoteList(stClassesInLines(failed, sched))),
 					"read the Event verbatim above — it is the provisioner's own explanation. Fix the backend (volume group, pool, quota, credentials) or point the values at a class that binds, then re-run `budctl check --only storage`",
 					append(failed, sched...)...).
+					WithEvidence(evidence...)
+
+			case len(oversized) > 0:
+				// Seen with the hostpath CSI provisioner of OpenShift Local: every
+				// claim reports the whole host disk. Percona's MongoDB operator
+				// compares the claim it asked for with the size it got, refuses
+				// to shrink, and never initialises the replica set.
+				return ch.Fail(
+					fmt.Sprintf("a claim bound larger than it asked for (%s), so operators that reconcile volume size (Percona MongoDB: \"requested storage is less than actual storage\") stop and never bring their database up",
+						strings.Join(oversized, "; ")),
+					"point the stateful components at a StorageClass that provisions the size requested. On a single-node test cluster whose provisioner only exposes a host directory, set each affected claim's size to the reported capacity with --set",
+					oversized...).
 					WithEvidence(evidence...)
 			}
 
@@ -1842,4 +1860,25 @@ func stOrUnset(s string) string {
 		return "(unset)"
 	}
 	return s
+}
+
+// stProbeSize is the size storage.provision asks for: 1 GiB, not the real
+// size, because provisioning the real size would allocate it for real.
+const stProbeSize = "1Gi"
+
+// stOversizedAbove is how large a 1 GiB probe claim may come back before it
+// counts as oversized. Cloud provisioners round a small claim up to their
+// smallest disk (10 GiB for GCE pd-balanced), which the install's real claims
+// mostly exceed anyway. A provisioner that reports the whole host disk, like
+// the hostpath CSI driver of OpenShift Local, lands far above this.
+const stOversizedAbove = "10Gi"
+
+// stOversized reports whether a bound probe claim came back larger than any
+// rounding explains. An empty or unparseable capacity is not evidence.
+func stOversized(capacity string) bool {
+	got, err := resource.ParseQuantity(capacity)
+	if err != nil {
+		return false
+	}
+	return got.Cmp(resource.MustParse(stOversizedAbove)) > 0
 }

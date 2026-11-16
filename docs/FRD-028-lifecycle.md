@@ -766,7 +766,7 @@ debugging. `--no-probe` turns every probe check into a SKIP.
 | Probe check | Creates | Proves |
 |---|---|---|
 | `registry.from-cluster` | 1 Pod | Nodes can reach the registry and the credentials are accepted |
-| `storage.provision` | 1 × 1 GiB PVC + consumer Pod per candidate class | The provisioner binds (a consumer is needed for `WaitForFirstConsumer`) |
+| `storage.provision` | 1 × 1 GiB PVC + consumer Pod per candidate class | The provisioner binds (a consumer is needed for `WaitForFirstConsumer`), at roughly the size asked for |
 | `egress.*` | 1 Pod (`curlimages/curl:8.11.1`, `--probe-image`) | Outbound reachability from where workloads run |
 | `argocd.repo-server-egress` | 1 Pod | The Argo CD init container's tool downloads succeed |
 | `gpu.operator-functional` | 1 Pod requesting `nvidia.com/gpu: 1` (`debian:trixie-slim`, `--gpu-probe-image`) | Driver, device plugin and RuntimeClass deliver a device. No CUDA image is pulled |
@@ -908,7 +908,7 @@ Answers can be saved (`--save-answers`) and replayed (`--answers`). Flags pre-fi
 | `storage.host-prereqs` | Host prerequisites implied by class parameters (`volgroup`, `fsType`), confirmed through per-node `CSIStorageCapacity` where the driver publishes it | RISK |
 | `storage.shared-rwo` | A RWO claim mounted by several workloads, which pins them all to one node (for example `bud-models-registry`) | RISK |
 | `storage.rwx` | A RWX claim on a class that serves one node at a time. An unrecognised driver is SKIPped | BLOCK |
-| `storage.provision` | *Probe:* a 1 GiB PVC with a consumer reaches `Bound` for each candidate class | BLOCK |
+| `storage.provision` | *Probe:* a 1 GiB PVC with a consumer reaches `Bound` for each candidate class, with a capacity no larger than 10 GiB | BLOCK |
 
 #### `components` (4) — the only cluster components Bud requires but does not install
 
