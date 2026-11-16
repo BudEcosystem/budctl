@@ -62,10 +62,8 @@ func files(names ...string) func(spec.Spec) []string {
 }
 
 const (
-	budCharts           = "registry.bud.studio/charts"
-	openSandboxRepo     = "https://github.com/BudEcosystem/bud-runtime.git"
-	openSandboxRevision = "adc5eb4518b820e3452512fcf30fe4cb2e1da524"
-	minimalExample      = "example.minimal.yaml"
+	budCharts      = "registry.bud.studio/charts"
+	minimalExample = "example.minimal.yaml"
 )
 
 func injectsCA(s spec.Spec) bool { return s.TLS == spec.TLSSelfSigned || s.TLS == spec.TLSInternalCA }
@@ -167,7 +165,7 @@ var All = []Component{
 	},
 	{
 		Name: "opensandbox", Namespace: "opensandbox-system",
-		Source:   Source{GitRepoURL: openSandboxRepo, GitRevision: openSandboxRevision, GitPath: "infra/charts/opensandbox"},
+		Source:   Source{RepoURL: budCharts, Chart: "opensandbox", Version: "0.0.1"},
 		Secrets:  openSandboxSecrets,
 		SyncWave: 11,
 	},

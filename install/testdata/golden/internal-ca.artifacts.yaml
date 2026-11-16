@@ -143,11 +143,12 @@ appsets/production.yaml:
                       valueFiles:
                         - $values/values/bud/values.production.yaml
                         - $values/values/bud/secrets.production.yaml
-                    - gitPath: infra/charts/opensandbox
-                      gitRepoURL: https://github.com/BudEcosystem/bud-runtime.git
-                      gitRevision: adc5eb4518b820e3452512fcf30fe4cb2e1da524
+                    - chart: opensandbox
+                      gitPath: ""
                       name: opensandbox
                       namespace: opensandbox-system
+                      repoURL: registry.bud.studio/charts
+                      targetRevision: 0.0.1
                       valueFiles:
                         - $values/values/opensandbox/secrets.production.yaml
         goTemplate: true

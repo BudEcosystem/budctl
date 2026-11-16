@@ -356,7 +356,7 @@ The full table, taken from the pinned template (`templates/appset.yaml.tmpl` at 
 | valkey | valkey | registry-1.docker.io/cloudpirates/valkey | 0.26.1 | – | `values.yaml`, `values.minimal.yaml`, `values.budruntime.yaml` | always |
 | keycloak | keycloak | bud charts/keycloak | 0.2.1 | – | `keycloak/values.budruntime.yaml` (176 lines, the largest) | always |
 | bud | bud | bud charts/bud | 1.4.0 | – | – (env overlay only) | always |
-| opensandbox | opensandbox-system | git bud-runtime `infra/charts/opensandbox` @ `openSandboxSourceRef` | – | – | – | always |
+| opensandbox | opensandbox-system | bud charts/opensandbox | 0.0.1 | – | – | always |
 | bud-studio | bud-studio | bud charts/budagent | 0.3.6 | – | – | `--bud-studio` |
 
 Everything this table drives:

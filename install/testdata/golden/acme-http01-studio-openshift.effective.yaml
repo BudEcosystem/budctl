@@ -836,9 +836,9 @@ components:
         chartValueFiles: []
         namespace: opensandbox-system
         source:
-            gitPath: infra/charts/opensandbox
-            gitRepoURL: https://github.com/BudEcosystem/bud-runtime.git
-            gitRevision: adc5eb4518b820e3452512fcf30fe4cb2e1da524
+            chart: opensandbox
+            repoURL: registry.bud.studio/charts
+            targetRevision: 0.0.1
         values:
             opensandbox:
                 opensandbox-server:
