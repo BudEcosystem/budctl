@@ -146,7 +146,7 @@ components:
         source:
             chart: bud
             repoURL: registry.bud.studio/charts
-            targetRevision: 1.2.8
+            targetRevision: 1.4.0
         values:
             appApiToken: golden-app-api
             daprExtra:
@@ -245,6 +245,7 @@ components:
                 externalDatabase:
                     password: golden-postgres-keycloak
                     user: keycloak
+            kvCacheSaltKey: golden-kv-cache-salt
             microservices:
                 budapp:
                     env:
@@ -306,6 +307,8 @@ components:
                     privateKey: golden-rsa-private
                     privateKeyPassword: golden-rsa-password
                     publicKey: golden-rsa-public
+                waavFront:
+                    apiKey: golden-waav-front-api
             novu:
                 externalDatabase:
                     password: golden-mongodb

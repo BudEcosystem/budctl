@@ -355,7 +355,7 @@ The full table, taken from the pinned template (`templates/appset.yaml.tmpl` at 
 | seaweedfs | seaweedfs | bud charts/seaweedfs | 0.1.1 | `example.minimal.yaml` | `seaweedfs/values.budruntime.yaml` | always |
 | valkey | valkey | registry-1.docker.io/cloudpirates/valkey | 0.21.4 | – | `values.yaml`, `values.minimal.yaml`, `values.budruntime.yaml` | always |
 | keycloak | keycloak | bud charts/keycloak | 0.2.1 | – | `keycloak/values.budruntime.yaml` (176 lines, the largest) | always |
-| bud | bud | bud charts/bud | 1.2.8 | – | – (env overlay only) | always |
+| bud | bud | bud charts/bud | 1.4.0 | – | – (env overlay only) | always |
 | opensandbox | opensandbox-system | git bud-runtime `infra/charts/opensandbox` @ `openSandboxSourceRef` | – | – | – | always |
 | bud-studio | bud-studio | bud charts/budagent | 0.3.6 | – | – | `--bud-studio` |
 

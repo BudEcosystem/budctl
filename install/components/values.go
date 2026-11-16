@@ -119,6 +119,9 @@ func budSecrets(s spec.Spec, g spec.GeneratedSecrets) map[string]any {
 	return map[string]any{
 		"registries":  registry(s),
 		"appApiToken": g.Values["app-api"],
+		// Required from Bud chart 1.4.0: budgateway derives every tenant's
+		// prefix-cache salt from it.
+		"kvCacheSaltKey": g.Values["kv-cache-salt"],
 		"externalServices": map[string]any{
 			"oidc":       map[string]any{"clients": map[string]any{"mcpgateway": map[string]any{"secret": g.Values["keycloak-mcpgateway"]}}},
 			"s3":         map[string]any{"auth": map[string]any{"accessKey": g.Values["s3-access"], "secretKey": g.Values["s3-secret"]}},
@@ -136,6 +139,7 @@ func budSecrets(s spec.Spec, g spec.GeneratedSecrets) map[string]any {
 		"microservices": map[string]any{
 			"rsaKeys":    map[string]any{"privateKeyPassword": g.Values["rsa-password"], "privateKey": g.RSAPrivate, "publicKey": g.RSAPublic},
 			"budcluster": map[string]any{"registerDefaultCluster": map[string]any{"token": g.Values["cluster-token"]}},
+			"waavFront":  map[string]any{"apiKey": g.Values["waav-front-api"]},
 			"budcodeinterpreter": map[string]any{"env": map[string]any{
 				"SECRETS_OPENSANDBOX_API_KEY": g.Values["opensandbox-api"],
 			}},

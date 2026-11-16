@@ -144,7 +144,41 @@ func RepairSecrets(g *GeneratedSecrets) error {
 		}
 		g.Values["dapr-asymmetric"] = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 	}
+	// The Bud chart (1.4.0+) fails to render without kvCacheSaltKey, and
+	// budgateway refuses to start unless it is standard base64 of at least 32
+	// bytes. Every tenant's vLLM prefix-cache salt is derived from it, so a
+	// valid key is never rotated.
+	if !isKVCacheSalt(g.Values[kvCacheSaltKey]) {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return fmt.Errorf("generate KV-cache salt key: %w", err)
+		}
+		g.Values[kvCacheSaltKey] = base64.StdEncoding.EncodeToString(b)
+	}
+	// Tokens later chart releases require, which state saved by an earlier
+	// budctl does not have. Only a missing one is generated.
+	for _, name := range addedTokens {
+		if g.Values[name] == "" {
+			token, err := randomToken(32)
+			if err != nil {
+				return err
+			}
+			g.Values[name] = token
+		}
+	}
 	return nil
+}
+
+// addedTokens are plain random tokens introduced after the first release:
+// waav-front-api is the WaaV front model's API key, required from Bud chart
+// 1.4.0 (the chart fails the render without it).
+var addedTokens = []string{"waav-front-api"}
+
+const kvCacheSaltKey = "kv-cache-salt"
+
+func isKVCacheSalt(s string) bool {
+	b, err := base64.StdEncoding.DecodeString(s)
+	return err == nil && len(b) >= 32
 }
 
 func isPrivateKeyPEM(s string) bool {

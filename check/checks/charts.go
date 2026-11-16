@@ -59,7 +59,7 @@ type chartsOCIEntry struct {
 func chartsScopeAlways(*check.Ctx) bool { return true }
 
 var chartsOCICatalogue = []chartsOCIEntry{
-	{"bud", "1.2.8", chartsScopeAlways, "the platform itself"},
+	{"bud", "1.4.0", chartsScopeAlways, "the platform itself"},
 	{"keycloak", "0.2.1", chartsScopeAlways, "the identity provider every service authenticates against"},
 	{"cert-manager", "0.1.3", func(c *check.Ctx) bool {
 		// Only ACME issuance needs the operator; a customer-provided certificate

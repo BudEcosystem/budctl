@@ -155,7 +155,7 @@ func chartsGPULabelled(o k8s.Object) {
 
 const (
 	chartsRegistryRoot = "https://registry.bud.studio/v2/"
-	chartsBudManifest  = "/v2/charts/bud/manifests/1.2.8"
+	chartsBudManifest  = "/v2/charts/bud/manifests/1.4.0"
 	chartsAibrixAsset  = "releases/download/"
 	chartsAibrixCDN    = "objects.githubusercontent.com"
 )
@@ -185,7 +185,7 @@ func TestChartsOCIBlocksWhenThePinnedUmbrellaChartIsAbsent(t *testing.T) {
 	r := chartsRun(t, vanilla(), "charts.oci",
 		chartsAllOK(chartsCode(chartsBudManifest, http.StatusNotFound)), nil)
 	assertStatus(t, r, "BLOCK")
-	chartsMentions(t, r, "bud:1.2.8", "the platform itself")
+	chartsMentions(t, r, "bud:1.4.0", "the platform itself")
 }
 
 // An addon nobody selected must not block an install — but it must not vanish
@@ -281,14 +281,14 @@ func TestChartsOCIBlocksWhenManifestRequestsCannotBeReached(t *testing.T) {
 			chartsBlock("/manifests/"),
 		), nil)
 	assertStatus(t, r, "BLOCK")
-	chartsMentions(t, r, "could not be reached", "bud:1.2.8")
+	chartsMentions(t, r, "could not be reached", "bud:1.4.0")
 }
 
 // The pass case, which is what makes every failure above meaningful.
 func TestChartsOCIPassesWhenEveryPinnedChartResolves(t *testing.T) {
 	r := chartsRun(t, vanilla(), "charts.oci", chartsAllOK(), nil)
 	assertStatus(t, r, "PASS")
-	chartsMentions(t, r, "bud:1.2.8", "keycloak:0.2.1")
+	chartsMentions(t, r, "bud:1.4.0", "keycloak:0.2.1")
 	if r.DoesNotProve == "" {
 		t.Fatal("charts.oci passed without bounding the claim to manifests rather than archives")
 	}

@@ -130,7 +130,7 @@ appsets/production.yaml:
                       name: bud
                       namespace: bud
                       repoURL: registry.bud.studio/charts
-                      targetRevision: 1.2.8
+                      targetRevision: 1.4.0
                       valueFiles:
                         - $values/values/bud/values.production.yaml
                         - $values/values/bud/secrets.production.yaml
@@ -316,6 +316,7 @@ values/bud/secrets.production.yaml:
         externalDatabase:
             password: golden-postgres-keycloak
             user: keycloak
+    kvCacheSaltKey: golden-kv-cache-salt
     microservices:
         budapp:
             env:
@@ -362,6 +363,8 @@ values/bud/secrets.production.yaml:
             privateKey: golden-rsa-private
             privateKeyPassword: golden-rsa-password
             publicKey: golden-rsa-public
+        waavFront:
+            apiKey: golden-waav-front-api
     novu:
         externalDatabase:
             password: golden-mongodb

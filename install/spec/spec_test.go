@@ -194,3 +194,57 @@ func TestRepairSecretsFixesOnlyInvalidKeys(t *testing.T) {
 		t.Error("a valid key was rotated")
 	}
 }
+
+// State saved before Bud chart 1.4.0 has no kv-cache-salt; a resumed install
+// gets one, and a valid one is kept, since rotating it empties every tenant's
+// shared KV cache.
+func TestRepairSecretsAddsKVCacheSalt(t *testing.T) {
+	g, err := GenerateSecrets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isKVCacheSalt(g.Values["kv-cache-salt"]) {
+		t.Fatalf("generated kv-cache-salt %q is not standard base64 of 32+ bytes", g.Values["kv-cache-salt"])
+	}
+	kept := g.Values["kv-cache-salt"]
+	if err := RepairSecrets(&g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Values["kv-cache-salt"] != kept {
+		t.Error("a valid kv-cache-salt was rotated")
+	}
+	for _, old := range []string{"", "a-43-character-token-from-an-old-budctl-xyz"} {
+		g.Values["kv-cache-salt"] = old
+		if err := RepairSecrets(&g); err != nil {
+			t.Fatal(err)
+		}
+		if !isKVCacheSalt(g.Values["kv-cache-salt"]) {
+			t.Errorf("kv-cache-salt %q was not repaired", old)
+		}
+	}
+}
+
+// waav-front-api is generated for state that predates it, and never rotated.
+func TestRepairSecretsAddsWaavFrontKey(t *testing.T) {
+	g, err := GenerateSecrets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := g.Values["waav-front-api"]
+	if kept == "" {
+		t.Fatal("waav-front-api was not generated")
+	}
+	if err := RepairSecrets(&g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Values["waav-front-api"] != kept {
+		t.Error("an existing waav-front-api was rotated")
+	}
+	delete(g.Values, "waav-front-api")
+	if err := RepairSecrets(&g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Values["waav-front-api"] == "" {
+		t.Error("a missing waav-front-api was not added")
+	}
+}

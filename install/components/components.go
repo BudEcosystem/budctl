@@ -161,7 +161,7 @@ var All = []Component{
 	},
 	{
 		Name: "bud", Namespace: "bud",
-		Source: Source{RepoURL: budCharts, Chart: "bud", Version: "1.2.8"},
+		Source: Source{RepoURL: budCharts, Chart: "bud", Version: "1.4.0"},
 		Values: budValues, Secrets: budSecrets,
 		SyncWave: 12,
 	},
