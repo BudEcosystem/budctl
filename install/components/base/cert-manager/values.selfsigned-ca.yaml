@@ -44,3 +44,12 @@ bundles:
         pkcs12:
           key: "cafebabe-ca.p12"
           password: ""
+  # purely cause it's easier to get the selfsigned pem this way
+  ca-selfsigned:
+    sources:
+      - secret:
+          name: "selfsigned-ca-root"
+          key: "tls.crt"
+    target:
+      configMap:
+        key: "ca-selfsigned.pem"

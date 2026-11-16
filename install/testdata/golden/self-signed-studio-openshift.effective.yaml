@@ -386,6 +386,14 @@ components:
                                 password: ""
                         configMap:
                             key: cafebabe-ca.pem
+                ca-selfsigned:
+                    sources:
+                        - secret:
+                            key: tls.crt
+                            name: selfsigned-ca-root
+                    target:
+                        configMap:
+                            key: ca-selfsigned.pem
             cert-manager:
                 affinity:
                     nodeAffinity:
@@ -527,9 +535,10 @@ components:
         source:
             chart: dapr
             repoURL: https://dapr.github.io/helm-charts
-            targetRevision: 1.17.5
+            targetRevision: 1.19.1
         values:
             dapr_placement:
+                fsGroup: null
                 ha: true
                 volumeclaims:
                     storageClassName: ""
@@ -538,6 +547,8 @@ components:
                     storageClassName: ""
                     storageSize: 1Gi
                 ha: true
+                securityContext:
+                    fsGroup: null
             enabled: true
             global:
                 ha:
@@ -594,7 +605,7 @@ components:
                                   values:
                                     - "true"
                           weight: 75
-            image: registry.bud.studio/runtime/keycloak-budtheme:0.2.2
+            image: registry.bud.studio/runtime/keycloak-budtheme:0.2.5
             imagePullSecrets:
                 - name: registry.bud.studio
             ingress:
@@ -624,6 +635,20 @@ components:
                                   name: aud-budadmin-web
                                   protocol: openid-connect
                                   protocolMapper: oidc-audience-mapper
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas
+                                  name: aud-bud-atlas
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas-ingest
+                                  name: aud-bud-atlas-ingest
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
                             publicClient: false
                             redirectUris:
                                 - https://app.bud.example.com/auth/redirect/callback
@@ -637,6 +662,14 @@ components:
                             enabled: true
                             implicitFlowEnabled: false
                             protocol: openid-connect
+                            protocolMappers:
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas
+                                  name: aud-bud-atlas
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
                             publicClient: false
                             secret: golden-keycloak-budapp-admin
                             serviceAccountsEnabled: true
@@ -654,6 +687,20 @@ components:
                                     id.token.claim: "false"
                                     included.client.audience: budcustomer-web
                                   name: aud-budcustomer-web
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas
+                                  name: aud-bud-atlas
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas-ingest
+                                  name: aud-bud-atlas-ingest
                                   protocol: openid-connect
                                   protocolMapper: oidc-audience-mapper
                             publicClient: false
@@ -678,6 +725,20 @@ components:
                                     id.token.claim: "false"
                                     included.client.audience: budplayground-web
                                   name: aud-budplayground-web
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas
+                                  name: aud-bud-atlas
+                                  protocol: openid-connect
+                                  protocolMapper: oidc-audience-mapper
+                                - config:
+                                    access.token.claim: "true"
+                                    id.token.claim: "false"
+                                    included.custom.audience: bud-atlas-ingest
+                                  name: aud-bud-atlas-ingest
                                   protocol: openid-connect
                                   protocolMapper: oidc-audience-mapper
                             publicClient: false
@@ -713,6 +774,7 @@ components:
                                 - +
                     spec:
                         accessTokenLifespan: 1800
+                        accountTheme: bud
                         duplicateEmailsAllowed: false
                         enabled: true
                         loginTheme: bud
@@ -722,8 +784,23 @@ components:
                         resetPasswordAllowed: true
                         roles:
                             realm:
-                                - name: super_admin
-                                - name: admin
+                                - name: settings.read
+                                - name: settings.tune
+                                - name: settings.admin
+                                - name: settings.scale
+                                - composite: true
+                                  composites:
+                                    realm:
+                                        - settings.tune
+                                        - settings.admin
+                                        - settings.scale
+                                  name: super_admin
+                                - composite: true
+                                  composites:
+                                    realm:
+                                        - settings.tune
+                                        - settings.admin
+                                  name: admin
                                 - name: user
                         sslRequired: external
                         ssoSessionIdleTimeout: 604800
@@ -740,6 +817,7 @@ components:
                               lastName: Admin
                               realmRoles:
                                 - super_admin
+                                - default-roles-bud-keycloak
                               username: root
                             - clientRoles:
                                 realm-management:
@@ -758,7 +836,7 @@ components:
         source:
             chart: kyverno
             repoURL: registry.bud.studio/charts
-            targetRevision: 0.0.2
+            targetRevision: 0.0.5
         values:
             clusterPolicies:
                 inject-ca:
@@ -806,6 +884,7 @@ components:
                                   value:
                                     - bud
                                     - bud-*
+                          skipBackgroundRequests: true
             kyverno:
                 admissionController:
                     nodeAffinity:
@@ -1035,7 +1114,7 @@ components:
         source:
             chart: seaweedfs
             repoURL: registry.bud.studio/charts
-            targetRevision: 0.1.1
+            targetRevision: 0.1.2
         values:
             affinity:
                 nodeAffinity:
@@ -1048,6 +1127,14 @@ components:
                                     - "true"
                           weight: 75
             buckets:
+                bud-agent-assets:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 1Gi
+                    reclaimPolicy: Delete
+                    versioning: "Off"
                 bud-eval-artifacts:
                     anonymousRead: false
                     objectLock: false
@@ -1078,6 +1165,14 @@ components:
                     quota:
                         enforce: true
                         size: 1Gi
+                    reclaimPolicy: Delete
+                    versioning: "Off"
+                bud-skills:
+                    anonymousRead: false
+                    objectLock: false
+                    quota:
+                        enforce: true
+                        size: 5Gi
                     reclaimPolicy: Delete
                     versioning: "Off"
                 bud-terraform-state:
@@ -1117,6 +1212,10 @@ components:
                             - bud-eval-artifacts/*
                             - bud-terraform-state
                             - bud-terraform-state/*
+                            - bud-agent-assets
+                            - bud-agent-assets/*
+                            - bud-skills
+                            - bud-skills/*
             postgres:
                 password: golden-postgres-seaweedfs
             seaweedfs-operator:
@@ -1138,7 +1237,7 @@ components:
         source:
             chart: valkey
             repoURL: registry-1.docker.io/cloudpirates
-            targetRevision: 0.21.4
+            targetRevision: 0.26.1
         values:
             affinity:
                 nodeAffinity:
@@ -1171,6 +1270,11 @@ components:
             persistence:
                 enabled: true
                 size: 1Gi
+            podAnnotations:
+                pre.hook.backup.velero.io/command: '["/bin/sh","-ec","while valkey-cli INFO persistence | grep -q rdb_bgsave_in_progress:1; do sleep 1; done; valkey-cli -e BGSAVE; while valkey-cli INFO persistence | grep -q rdb_bgsave_in_progress:1; do sleep 1; done; valkey-cli INFO persistence | grep -q rdb_last_bgsave_status:ok"]'
+                pre.hook.backup.velero.io/container: valkey
+                pre.hook.backup.velero.io/on-error: Fail
+                pre.hook.backup.velero.io/timeout: 5m
             replicaCount: 1
             resources:
                 limits:

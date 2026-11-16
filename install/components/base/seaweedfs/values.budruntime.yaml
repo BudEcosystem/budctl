@@ -27,6 +27,19 @@ policy:
           - "bud-eval-artifacts/*"
           - "bud-terraform-state"
           - "bud-terraform-state/*"
+          # FRD-015 widget assets (agent avatar / brand mark). BOTH forms are required:
+          # the bare name covers the bucket-level HEAD that budapp's ensure_bucket() does
+          # before every upload, and `/*` covers the objects themselves. Granting only the
+          # latter fails the upload before a single byte is written.
+          - "bud-agent-assets"
+          - "bud-agent-assets/*"
+          # Spec 019 registered skill bundles (`skills/{skill_id}/bundle.zip`). budapp
+          # writes them and budcodeinterpreter reads them back to stage a skill into a
+          # sandbox, both as this identity. BOTH forms are required for the same reason as
+          # bud-agent-assets above: the bare name covers the bucket-level HEAD that
+          # ensure_bucket() does before an upload, `/*` covers the objects.
+          - "bud-skills"
+          - "bud-skills/*"
 
 buckets:
   bud-novu:
@@ -45,6 +58,16 @@ buckets:
     quota:
       size: 1Gi
       enforce: true
+  # Spec 019 — registered Agent Skill bundles. PRIVATE: a bundle carries the skill's
+  # scripts, and anonymousRead would make every registered skill world-readable.
+  bud-skills:
+    reclaimPolicy: Delete
+    versioning: "Off"
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 5Gi
+      enforce: true
   bud-models-registry:
     reclaimPolicy: Delete
     versioning: "Off"
@@ -60,6 +83,23 @@ buckets:
     anonymousRead: false
     quota:
       size: 10Gi
+      enforce: true
+  # Per-agent assets served by budapp's /prompts/agent-assets/{key} route.
+  #
+  # anonymousRead stays FALSE deliberately: budapp streams these through its own route
+  # precisely so the bucket can remain private. Presigned URLs cap at 7 days (SigV4) and a
+  # widget's logo has to keep working on a customer's site indefinitely, so the streaming
+  # route is the design — opening the bucket would bypass it for no gain.
+  #
+  # 1Gi matches bud-novu / bud-model-info and is ample: uploads are capped at 1 MB, re-encoded
+  # to <=512px, and there is exactly one object per slot (two slots) per agent.
+  bud-agent-assets:
+    reclaimPolicy: Delete
+    versioning: "Off"
+    objectLock: false
+    anonymousRead: false
+    quota:
+      size: 1Gi
       enforce: true
   bud-terraform-state:
     reclaimPolicy: Retain

@@ -21,3 +21,9 @@ sentinel:
 auth:
   enabled: true
   password: "valkey"
+
+podAnnotations:
+  pre.hook.backup.velero.io/container: valkey
+  pre.hook.backup.velero.io/command: '["/bin/sh","-ec","while valkey-cli INFO persistence | grep -q rdb_bgsave_in_progress:1; do sleep 1; done; valkey-cli -e BGSAVE; while valkey-cli INFO persistence | grep -q rdb_bgsave_in_progress:1; do sleep 1; done; valkey-cli INFO persistence | grep -q rdb_last_bgsave_status:ok"]'
+  pre.hook.backup.velero.io/on-error: Fail
+  pre.hook.backup.velero.io/timeout: 5m

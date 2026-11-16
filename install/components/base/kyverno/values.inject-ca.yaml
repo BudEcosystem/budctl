@@ -11,6 +11,7 @@ clusterPolicies:
             - resources:
                 kinds:
                   - Pod
+        skipBackgroundRequests: true
         preconditions:
           all:
             - key: "{{ request.namespace }}"

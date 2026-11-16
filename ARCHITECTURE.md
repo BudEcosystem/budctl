@@ -345,15 +345,15 @@ The full table, taken from the pinned template (`templates/appset.yaml.tmpl` at 
 | Component | Namespace | Source | Version | Chart-internal files | Base layers to port | Enabled when |
 |---|---|---|---|---|---|---|
 | argocd | argocd | registry.bud.studio/charts/argocd | 0.1.1 | – | `argocd/values.budruntime.yaml` | always |
-| dapr | dapr-system | dapr.github.io/helm-charts/dapr | 1.17.5 | – | `dapr/values.yaml` | always |
+| dapr | dapr-system | dapr.github.io/helm-charts/dapr | 1.19.1 | – | `dapr/values.yaml` | always |
 | kafka | kafka | bud charts/kafka | 0.1.1 | `example.minimal.yaml` | `kafka/values.budruntime.yaml` | always |
 | mongodb | mongodb | bud charts/mongodb | 0.1.1 | `example.minimal.yaml` | `mongodb/values.budruntime.yaml` | always |
 | cert-manager | cert-manager | bud charts/cert-manager | 0.1.3 | – | `values.budruntime.yaml`, `values.selfsigned-ca.yaml` (self-signed only) | TLS ≠ external |
-| kyverno | kyverno | bud charts/kyverno | 0.0.2 | – | `values.inject-ca.yaml`, `values.budruntime.yaml` | TLS ∈ {self-signed, internal-ca} |
+| kyverno | kyverno | bud charts/kyverno | 0.0.5 | – | `values.inject-ca.yaml`, `values.budruntime.yaml` | TLS ∈ {self-signed, internal-ca} |
 | clickhouse | clickhouse | bud charts/clickhouse | 0.1.1 | `example.minimal.yaml` | `clickhouse/values.budruntime.yaml` | always |
 | postgres | postgres | bud charts/postgres | 0.1.1 | `example.minimal.yaml` | `values.budruntime.yaml`, `values.minimal.budruntime.yaml` | always |
-| seaweedfs | seaweedfs | bud charts/seaweedfs | 0.1.1 | `example.minimal.yaml` | `seaweedfs/values.budruntime.yaml` | always |
-| valkey | valkey | registry-1.docker.io/cloudpirates/valkey | 0.21.4 | – | `values.yaml`, `values.minimal.yaml`, `values.budruntime.yaml` | always |
+| seaweedfs | seaweedfs | bud charts/seaweedfs | 0.1.2 | `example.minimal.yaml` | `seaweedfs/values.budruntime.yaml` | always |
+| valkey | valkey | registry-1.docker.io/cloudpirates/valkey | 0.26.1 | – | `values.yaml`, `values.minimal.yaml`, `values.budruntime.yaml` | always |
 | keycloak | keycloak | bud charts/keycloak | 0.2.1 | – | `keycloak/values.budruntime.yaml` (176 lines, the largest) | always |
 | bud | bud | bud charts/bud | 1.4.0 | – | – (env overlay only) | always |
 | opensandbox | opensandbox-system | git bud-runtime `infra/charts/opensandbox` @ `openSandboxSourceRef` | – | – | – | always |

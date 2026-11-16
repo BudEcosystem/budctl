@@ -3,11 +3,14 @@ global:
   ha:
     enabled: false
 dapr_scheduler:
+  securityContext:
+    fsGroup: null
   ha: true
   cluster:
     storageSize: "1Gi"
     storageClassName: ""
 dapr_placement:
+  fsGroup: null
   ha: true
   volumeclaims:
     storageClassName: ""

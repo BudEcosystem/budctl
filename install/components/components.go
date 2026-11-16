@@ -20,7 +20,7 @@ import (
 )
 
 // base holds the shared layers every environment starts from, ported verbatim
-// from the reference template (example-bud-foundry-config @ 9b4ac59).
+// from the reference template (example-bud-foundry-config @ 76c0ca1).
 //
 //go:embed base
 var base embed.FS
@@ -81,7 +81,7 @@ var All = []Component{
 	},
 	{
 		Name: "dapr", Namespace: "dapr-system",
-		Source:    Source{RepoURL: "https://dapr.github.io/helm-charts", Chart: "dapr", Version: "1.17.5"},
+		Source:    Source{RepoURL: "https://dapr.github.io/helm-charts", Chart: "dapr", Version: "1.19.1"},
 		BaseFiles: files("values.yaml"),
 		SyncWave:  3,
 	},
@@ -116,7 +116,7 @@ var All = []Component{
 	},
 	{
 		Name: "kyverno", Namespace: "kyverno",
-		Source:    Source{RepoURL: budCharts, Chart: "kyverno", Version: "0.0.2"},
+		Source:    Source{RepoURL: budCharts, Chart: "kyverno", Version: "0.0.5"},
 		Enabled:   injectsCA,
 		BaseFiles: files("values.inject-ca.yaml", "values.budruntime.yaml"),
 		SyncWave:  2,
@@ -139,7 +139,7 @@ var All = []Component{
 	},
 	{
 		Name: "seaweedfs", Namespace: "seaweedfs",
-		Source:          Source{RepoURL: budCharts, Chart: "seaweedfs", Version: "0.1.1"},
+		Source:          Source{RepoURL: budCharts, Chart: "seaweedfs", Version: "0.1.2"},
 		ChartValueFiles: []string{minimalExample},
 		BaseFiles:       files("values.budruntime.yaml"),
 		Values:          seaweedValues, Secrets: seaweedSecrets,
@@ -147,7 +147,7 @@ var All = []Component{
 	},
 	{
 		Name: "valkey", Namespace: "valkey",
-		Source:    Source{RepoURL: "registry-1.docker.io/cloudpirates", Chart: "valkey", Version: "0.21.4"},
+		Source:    Source{RepoURL: "registry-1.docker.io/cloudpirates", Chart: "valkey", Version: "0.26.1"},
 		BaseFiles: files("values.yaml", "values.minimal.yaml", "values.budruntime.yaml"),
 		Secrets:   valkeySecrets,
 		SyncWave:  9,

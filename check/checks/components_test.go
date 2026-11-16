@@ -974,7 +974,7 @@ func TestComponentsAppsetConflictsRiskOnHelmOwnedInstall(t *testing.T) {
 	f := vanilla().
 		with("namespaces", "", componentsNamespace("dapr-system")).
 		with("deployments.apps", "dapr-system", componentsAppsetWorkload(
-			"dapr-system", "dapr-operator", "1.17.5", map[string]string{
+			"dapr-system", "dapr-operator", "1.19.1", map[string]string{
 				"app.kubernetes.io/managed-by": "Helm",
 				"app.kubernetes.io/instance":   "dapr",
 			}))
@@ -1020,7 +1020,7 @@ func TestComponentsAppsetConflictsInfoWhenPinnedVersionMatches(t *testing.T) {
 	f := vanilla().
 		with("namespaces", "", componentsNamespace("dapr-system")).
 		with("deployments.apps", "dapr-system", componentsAppsetWorkload(
-			"dapr-system", "dapr-operator", "1.17.5",
+			"dapr-system", "dapr-operator", "1.19.1",
 			map[string]string{"argocd.argoproj.io/instance": "dapr"}))
 	r := run(t, f, "components.appset-conflicts")
 	assertStatus(t, r, "INFO")
@@ -1028,13 +1028,13 @@ func TestComponentsAppsetConflictsInfoWhenPinnedVersionMatches(t *testing.T) {
 }
 
 // A patch-level difference is not a conflict: the pin comparison is major.minor
-// deliberately, and flagging 1.17.4-vs-1.17.5 would train operators to ignore
+// deliberately, and flagging 1.19.0-vs-1.19.1 would train operators to ignore
 // the finding that matters.
 func TestComponentsAppsetConflictsIgnoresPatchDrift(t *testing.T) {
 	f := vanilla().
 		with("namespaces", "", componentsNamespace("dapr-system")).
 		with("deployments.apps", "dapr-system", componentsAppsetWorkload(
-			"dapr-system", "dapr-operator", "1.17.2",
+			"dapr-system", "dapr-operator", "1.19.0",
 			map[string]string{"argocd.argoproj.io/instance": "dapr"}))
 	assertStatus(t, run(t, f, "components.appset-conflicts"), "INFO")
 }

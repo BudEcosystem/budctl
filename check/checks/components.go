@@ -922,7 +922,7 @@ var appsetCatalog = map[string]appsetComponent{
 // appsetPins are the versions the ApplicationSets pin, for the two components
 // where the chart version IS the upstream application version and a mismatch is
 // therefore a real statement rather than a units error. dapr comes from
-// infra/appsets/cluster-addons.yaml (targetRevision 1.17.5); cert-manager from
+// infra/appsets/cluster-addons.yaml (targetRevision 1.19.1); cert-manager from
 // infra/charts/cert-manager/Chart.yaml (dependency 1.21.0).
 //
 // CONTRACT GAP: these belong in profiles/defaults.yaml beside appsetComponents,
@@ -930,7 +930,7 @@ var appsetCatalog = map[string]appsetComponent{
 // will. intake.Profile has no field for them today, and a sweep that carries no
 // expected version cannot report a version conflict at all.
 var appsetPins = map[string]string{
-	"dapr":         "1.17.5",
+	"dapr":         "1.19.1",
 	"cert-manager": "1.21.0",
 }
 
