@@ -1,10 +1,16 @@
 package spec
 
 import (
+	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"math/big"
 	"os"
@@ -246,5 +252,152 @@ func TestRepairSecretsAddsWaavFrontKey(t *testing.T) {
 	}
 	if g.Values["waav-front-api"] == "" {
 		t.Error("a missing waav-front-api was not added")
+	}
+}
+
+// decryptPKCS8 opens an encrypted PKCS#8 PEM block the way a reader of the
+// Bud chart's RSA key does.
+func decryptPKCS8(t *testing.T, privatePEM, password string) *rsa.PrivateKey {
+	t.Helper()
+	block, rest := pem.Decode([]byte(privatePEM))
+	if block == nil || len(bytes.TrimSpace(rest)) != 0 {
+		t.Fatal("the private key is not a single PEM block")
+	}
+	if block.Type != "ENCRYPTED PRIVATE KEY" || len(block.Headers) != 0 {
+		t.Fatalf("PEM block is %q with headers %v, want a bare ENCRYPTED PRIVATE KEY", block.Type, block.Headers)
+	}
+	var info encryptedPrivateKeyInfo
+	if rest, err := asn1.Unmarshal(block.Bytes, &info); err != nil || len(rest) != 0 {
+		t.Fatalf("parse EncryptedPrivateKeyInfo: %v", err)
+	}
+	kdf, enc := info.Algorithm.Parameters.KeyDerivation, info.Algorithm.Parameters.Encryption
+	if !info.Algorithm.Algorithm.Equal(oidPBES2) || !kdf.Algorithm.Equal(oidPBKDF2) ||
+		!kdf.Parameters.PRF.Algorithm.Equal(oidHMACWithSHA256) || !enc.Algorithm.Equal(oidAES256CBC) {
+		t.Fatal("the key is not PBES2 with PBKDF2-HMAC-SHA256 and AES-256-CBC")
+	}
+	key, err := pbkdf2.Key(sha256.New, password, kdf.Parameters.Salt, kdf.Parameters.Iterations, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := aes.NewCipher(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := make([]byte, len(info.EncryptedData))
+	cipher.NewCBCDecrypter(c, enc.IV).CryptBlocks(plain, info.EncryptedData)
+	pad := int(plain[len(plain)-1])
+	if pad == 0 || pad > aes.BlockSize {
+		t.Fatal("wrong password or corrupt key: bad padding")
+	}
+	parsed, err := x509.ParsePKCS8PrivateKey(plain[:len(plain)-pad])
+	if err != nil {
+		t.Fatalf("parse decrypted key: %v", err)
+	}
+	rsaKey, ok := parsed.(*rsa.PrivateKey)
+	if !ok {
+		t.Fatalf("decrypted key is %T, want RSA", parsed)
+	}
+	return rsaKey
+}
+
+func publicKeyPEM(t *testing.T, key *rsa.PrivateKey) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
+// WaaV reads the RSA key as RFC 7468 encrypted PKCS#8 and refuses the legacy
+// "Proc-Type" PEM, so the generated key must be the former and must open with
+// the generated password.
+func TestGeneratedRSAKeyIsEncryptedPKCS8(t *testing.T) {
+	g, err := GenerateSecrets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := decryptPKCS8(t, g.RSAPrivate, g.Values["rsa-password"])
+	if publicKeyPEM(t, key) != g.RSAPublic {
+		t.Error("the private key does not match the generated public key")
+	}
+}
+
+// State saved by an earlier budctl holds the legacy form. It is re-wrapped
+// with the same key and password, and a converted key is left alone.
+func TestRepairSecretsConvertsLegacyRSAKey(t *testing.T) {
+	g, err := GenerateSecrets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := g.Values["rsa-password"]
+	legacy, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key), []byte(password), x509.PEMCipherAES256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.RSAPrivate, g.RSAPublic = string(pem.EncodeToMemory(legacy)), publicKeyPEM(t, key)
+	if err := RepairSecrets(&g); err != nil {
+		t.Fatal(err)
+	}
+	if !decryptPKCS8(t, g.RSAPrivate, password).Equal(key) {
+		t.Error("the converted key is not the cached key")
+	}
+	if g.Values["rsa-password"] != password || g.RSAPublic != publicKeyPEM(t, key) {
+		t.Error("the password or public key changed")
+	}
+	converted := g.RSAPrivate
+	if err := RepairSecrets(&g); err != nil {
+		t.Fatal(err)
+	}
+	if g.RSAPrivate != converted {
+		t.Error("an already converted key was rewritten")
+	}
+}
+
+// Novu refuses a password without a digit, both letter cases and one of its
+// symbols, and budnotify then crash-loops. A refused password is replaced; an
+// accepted one is the live admin login and is never rotated.
+func TestNovuAdminPasswordMeetsPolicy(t *testing.T) {
+	for range 200 {
+		password, err := novuPassword()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isNovuPassword(password) || strings.Contains(password, "_") {
+			t.Fatalf("generated password %q does not meet Novu's policy", password)
+		}
+	}
+	g, err := GenerateSecrets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := g.Values["novu-admin"]
+	if !isNovuPassword(kept) {
+		t.Fatalf("generated novu-admin %q does not meet Novu's policy", kept)
+	}
+	if err := RepairSecrets(&g); err != nil {
+		t.Fatal(err)
+	}
+	if g.Values["novu-admin"] != kept {
+		t.Error("an accepted novu-admin was rotated")
+	}
+	for _, old := range []string{"", "NoSymbolFromAnOldBudctl_0123456789abcdefghi", "short-A1", strings.Repeat("aA1-", 17)} {
+		g.Values["novu-admin"] = old
+		if err := RepairSecrets(&g); err != nil {
+			t.Fatal(err)
+		}
+		if old == "short-A1" {
+			if g.Values["novu-admin"] != old {
+				t.Errorf("accepted password %q was rotated", old)
+			}
+			continue
+		}
+		if !isNovuPassword(g.Values["novu-admin"]) || g.Values["novu-admin"] == old {
+			t.Errorf("novu-admin %q was not repaired", old)
+		}
 	}
 }

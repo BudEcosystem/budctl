@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"strings"
 
 	"filippo.io/age"
 )
@@ -92,16 +93,77 @@ func generateRSA(password string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("generate RSA key: %w", err)
 	}
-	privateDER := x509.MarshalPKCS1PrivateKey(key)
-	privateBlock, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", privateDER, []byte(password), x509.PEMCipherAES256)
+	privatePEM, err := encryptRSAKey(key, password)
 	if err != nil {
-		return "", "", fmt.Errorf("encrypt RSA key: %w", err)
+		return "", "", err
 	}
 	publicDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
 		return "", "", fmt.Errorf("marshal RSA public key: %w", err)
 	}
-	return string(pem.EncodeToMemory(privateBlock)), string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})), nil
+	return privatePEM, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})), nil
+}
+
+func encryptRSAKey(key *rsa.PrivateKey, password string) (string, error) {
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return "", fmt.Errorf("marshal RSA key: %w", err)
+	}
+	privatePEM, err := encryptPKCS8(der, password)
+	if err != nil {
+		return "", fmt.Errorf("encrypt RSA key: %w", err)
+	}
+	return privatePEM, nil
+}
+
+// repairRSAKey re-wraps a key that an earlier budctl wrote as legacy
+// "Proc-Type: 4,ENCRYPTED" PEM into encrypted PKCS#8. WaaV refuses the legacy
+// form ("PEM headers disallowed by RFC7468") and never starts. The key and its
+// password stay the same, so the public key and everything signed still match.
+func repairRSAKey(g *GeneratedSecrets) error {
+	block, _ := pem.Decode([]byte(g.RSAPrivate))
+	if block == nil || !x509.IsEncryptedPEMBlock(block) {
+		return nil
+	}
+	der, err := x509.DecryptPEMBlock(block, []byte(g.Values["rsa-password"]))
+	if err != nil {
+		return fmt.Errorf("decrypt cached RSA key: %w", err)
+	}
+	key, err := x509.ParsePKCS1PrivateKey(der)
+	if err != nil {
+		return fmt.Errorf("parse cached RSA key: %w", err)
+	}
+	g.RSAPrivate, err = encryptRSAKey(key, g.Values["rsa-password"])
+	return err
+}
+
+// Novu accepts a password only if it is 8 to 64 characters with a digit, a
+// lowercase letter, an uppercase letter and one of these symbols. budnotify
+// creates the Novu admin with novu-admin at startup, and crash-loops when Novu
+// refuses it.
+const novuSymbols = "#?!@$%^&*()-"
+
+func isNovuPassword(s string) bool {
+	return len(s) >= 8 && len(s) <= 64 &&
+		strings.ContainsAny(s, "0123456789") &&
+		strings.ContainsAny(s, "abcdefghijklmnopqrstuvwxyz") &&
+		strings.ContainsAny(s, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") &&
+		strings.ContainsAny(s, novuSymbols)
+}
+
+func novuPassword() (string, error) {
+	for {
+		token, err := randomToken(32)
+		if err != nil {
+			return "", err
+		}
+		// NOTE: [AGENT]: "_" is the one URL-safe character outside Novu's
+		// symbol set.
+		token = strings.ReplaceAll(token, "_", "-")
+		if isNovuPassword(token) {
+			return token, nil
+		}
+	}
 }
 
 // Some of the Bud chart's keys have fixed formats. These are used as raw
@@ -122,6 +184,19 @@ var aesKeys = []string{"dapr-symmetric", "dapr-budevent", "novu-encryption", "no
 func RepairSecrets(g *GeneratedSecrets) error {
 	if g.Values == nil {
 		g.Values = map[string]string{}
+	}
+	if err := repairRSAKey(g); err != nil {
+		return err
+	}
+	// NOTE: [AGENT]: A password Novu refuses was never set on any account, so
+	// replacing it loses nothing; one it accepts is the live admin login and
+	// is kept.
+	if !isNovuPassword(g.Values["novu-admin"]) {
+		password, err := novuPassword()
+		if err != nil {
+			return err
+		}
+		g.Values["novu-admin"] = password
 	}
 	for _, name := range aesKeys {
 		if len(g.Values[name]) != aesKeyLength {
