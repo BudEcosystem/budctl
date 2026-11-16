@@ -82,23 +82,40 @@ func Run(ctx context.Context, c *Ctx, sel Selection, obs Observer) []Result {
 
 	var out []Result
 	for _, g := range order {
+		// A check that depends on its own group reads what the rest of that
+		// group records (platform.openshift-version reads the distribution
+		// platform.distribution detects), so it runs after them.
 		checks := byGroup[g]
 		results := make([]Result, len(checks))
 		sem := make(chan struct{}, limit)
-		var wg sync.WaitGroup
-		for i, ch := range checks {
-			wg.Add(1)
-			go func(i int, ch *Check) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				results[i] = runOne(ctx, c, ch, obs)
-			}(i, ch)
+		for _, dependents := range []bool{false, true} {
+			var wg sync.WaitGroup
+			for i, ch := range checks {
+				if dependsOn(ch, g) != dependents {
+					continue
+				}
+				wg.Add(1)
+				go func(i int, ch *Check) {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					results[i] = runOne(ctx, c, ch, obs)
+				}(i, ch)
+			}
+			wg.Wait()
 		}
-		wg.Wait()
 		out = append(out, results...)
 	}
 	return out
+}
+
+func dependsOn(ch *Check, group string) bool {
+	for _, dep := range ch.DependsOn {
+		if dep == group {
+			return true
+		}
+	}
+	return false
 }
 
 func withDependencies(selected []*Check, sel Selection) []*Check {

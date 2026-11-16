@@ -4,6 +4,7 @@
   [INFO ] platform.distribution              openshift
         server v1.29.0
         api
+        OpenShift 4.16.7
         apps wildcard *.apps.ocp.example.com
   [PASS ] platform.openshift-version         OpenShift 4.16.7 ≥ 4.12
 
@@ -63,6 +64,7 @@
           configmaps "budctl-server-side-apply-probe" not found
   [PASS ] cluster.version                    Kubernetes v1.29.0 ≥ 1.25
         api
+        OpenShift 4.16.7
         · GET /version
           v1.29.0
         does not prove: a supported API version says nothing about the CNI, the CSI drivers or the container runtime on the nodes

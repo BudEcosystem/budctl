@@ -94,7 +94,8 @@
       "severity": "BLOCK",
       "summary": "Kubernetes v1.29.0 ≥ 1.25",
       "detail": [
-        "api "
+        "api ",
+        "OpenShift 4.16.7"
       ],
       "evidence": [
         {
@@ -477,6 +478,7 @@
       "detail": [
         "server v1.29.0",
         "api ",
+        "OpenShift 4.16.7",
         "apps wildcard *.apps.ocp.example.com"
       ],
       "duration_ms": 0

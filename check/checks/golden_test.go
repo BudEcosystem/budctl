@@ -51,6 +51,8 @@ func healthyOpenShift() *fakeCluster {
 		f.with("nodes", "", node(n))
 	}
 	return f.
+		with("clusterversions.config.openshift.io", "", platformClusterVersion(
+			[]map[string]any{{"state": "Completed", "version": "4.16.7"}}, "4.16.7")).
 		with("storageclasses.storage.k8s.io", "", storageClass("gp3-csi", "ebs.csi.aws.com", true, true, nil)).
 		with("clusteroperators.config.openshift.io", "", clusterOperator("ingress", true), clusterOperator("dns", true)).
 		with("ingresscontrollers.operator.openshift.io", "openshift-ingress-operator",
