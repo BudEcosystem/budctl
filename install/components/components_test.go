@@ -82,7 +82,7 @@ func TestBootstrapSyncOrder(t *testing.T) {
 	for _, c := range BySyncWave(Enabled(s)) {
 		names = append(names, c.Name)
 	}
-	want := "argocd cert-manager kyverno dapr kafka mongodb clickhouse postgres seaweedfs valkey keycloak opensandbox bud bud-studio"
+	want := "cert-manager kyverno argocd dapr kafka mongodb clickhouse postgres seaweedfs valkey keycloak opensandbox bud bud-studio"
 	if got := strings.Join(names, " "); got != want {
 		t.Fatalf("sync order:\n got %s\nwant %s", got, want)
 	}

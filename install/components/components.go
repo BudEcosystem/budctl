@@ -75,7 +75,12 @@ var All = []Component{
 		Source:    Source{RepoURL: budCharts, Chart: "argocd", Version: defaults.ArgoCDChartVersion},
 		BaseFiles: files("values.budruntime.yaml"),
 		Values:    argocdValues, Secrets: argocdSecrets,
-		SyncWave: 0,
+		// After cert-manager: the ArgoCD Ingress carries tls-acme, so its
+		// secret only exists once cert-manager issues it, and OpenShift
+		// gives an Ingress without that secret no Route, which leaves the
+		// Application Progressing. ArgoCD itself is already running from
+		// the Helm bootstrap, so nothing earlier needs this child synced.
+		SyncWave: 2,
 	},
 	{
 		Name: "dapr", Namespace: "dapr-system",
@@ -110,14 +115,14 @@ var All = []Component{
 			return []string{"values.budruntime.yaml"}
 		},
 		Values: certManagerValues, Secrets: certManagerSecrets,
-		SyncWave: 1,
+		SyncWave: 0,
 	},
 	{
 		Name: "kyverno", Namespace: "kyverno",
 		Source:    Source{RepoURL: budCharts, Chart: "kyverno", Version: "0.0.5"},
 		Enabled:   injectsCA,
 		BaseFiles: files("values.inject-ca.yaml", "values.budruntime.yaml"),
-		SyncWave:  2,
+		SyncWave:  1,
 	},
 	{
 		Name: "clickhouse", Namespace: "clickhouse",
