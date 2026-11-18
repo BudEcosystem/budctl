@@ -59,20 +59,20 @@ type chartsOCIEntry struct {
 func chartsScopeAlways(*check.Ctx) bool { return true }
 
 var chartsOCICatalogue = []chartsOCIEntry{
-	{"bud", "1.4.0", chartsScopeAlways, "the platform itself"},
+	{"bud", "1.4.0-next", chartsScopeAlways, "the platform itself"},
 	{"keycloak", "0.2.1", chartsScopeAlways, "the identity provider every service authenticates against"},
-	{"cert-manager", "0.1.3", func(c *check.Ctx) bool {
+	{"cert-manager", "0.1.4", func(c *check.Ctx) bool {
 		// Only ACME issuance needs the operator; a customer-provided certificate
 		// is a Secret, and cert-manager is then an addon rather than a step in
 		// the critical path.
 		return strings.HasPrefix(string(c.Answers.TLS), "acme")
 	}, "issues the certificate for every published hostname"},
 	{"postgres", "0.1.1", chartsScopeInClusterData, "CloudNativePG cluster for every service database"},
-	{"clickhouse", "0.1.1", chartsScopeInClusterData, "budmetrics and gateway analytics storage"},
+	{"clickhouse", "0.1.2", chartsScopeInClusterData, "budmetrics and gateway analytics storage"},
 	{"kafka", "0.1.1", chartsScopeInClusterData, "the event bus"},
 	{"mongodb", "0.1.1", chartsScopeInClusterData, "Novu's datastore"},
 	{"seaweedfs", "0.1.2", chartsScopeInClusterData, "the S3 object store the model registry writes to"},
-	{"opensandbox", "0.0.1", chartsScopeAlways, "the sandbox runtime behind the code interpreter"},
+	{"opensandbox", "0.0.3", chartsScopeAlways, "the sandbox runtime behind the code interpreter"},
 	{"kyverno", "0.0.5", chartsScopeOptional, "CA-injection addon for self-signed and internal-CA installations"},
 	{"budagent", "0.3.6", chartsScopeOptional, "bud-studio addon, installed only when selected"},
 }

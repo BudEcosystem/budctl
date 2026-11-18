@@ -20,7 +20,7 @@ import (
 )
 
 // base holds the shared layers every environment starts from, ported verbatim
-// from the reference template (example-bud-foundry-config @ 76c0ca1).
+// from the reference template (example-bud-foundry-config @ 54ab802).
 //
 //go:embed base
 var base embed.FS
@@ -59,6 +59,20 @@ type Component struct {
 
 func files(names ...string) func(spec.Spec) []string {
 	return func(spec.Spec) []string { return names }
+}
+
+// openShiftLayer is the file a component's OpenShift-only values live in.
+const openShiftLayer = "values.openshift.yaml"
+
+// onOpenShift returns names, followed by the OpenShift layer when the cluster
+// is OpenShift.
+func onOpenShift(names ...string) func(spec.Spec) []string {
+	return func(s spec.Spec) []string {
+		if !s.IsOpenShift {
+			return names
+		}
+		return append(append([]string(nil), names...), openShiftLayer)
+	}
 }
 
 const (
@@ -106,7 +120,7 @@ var All = []Component{
 	},
 	{
 		Name: "cert-manager", Namespace: "cert-manager",
-		Source:  Source{RepoURL: budCharts, Chart: "cert-manager", Version: "0.1.3"},
+		Source:  Source{RepoURL: budCharts, Chart: "cert-manager", Version: "0.1.4"},
 		Enabled: func(s spec.Spec) bool { return s.TLS != spec.TLSExternal },
 		BaseFiles: func(s spec.Spec) []string {
 			if s.TLS == spec.TLSSelfSigned {
@@ -126,7 +140,7 @@ var All = []Component{
 	},
 	{
 		Name: "clickhouse", Namespace: "clickhouse",
-		Source:          Source{RepoURL: budCharts, Chart: "clickhouse", Version: "0.1.1"},
+		Source:          Source{RepoURL: budCharts, Chart: "clickhouse", Version: "0.1.2"},
 		ChartValueFiles: []string{minimalExample},
 		BaseFiles:       files("values.budruntime.yaml"),
 		Secrets:         clickhouseSecrets,
@@ -151,7 +165,7 @@ var All = []Component{
 	{
 		Name: "valkey", Namespace: "valkey",
 		Source:    Source{RepoURL: "registry-1.docker.io/cloudpirates", Chart: "valkey", Version: "0.26.1"},
-		BaseFiles: files("values.yaml", "values.minimal.yaml", "values.budruntime.yaml"),
+		BaseFiles: onOpenShift("values.yaml", "values.minimal.yaml", "values.budruntime.yaml"),
 		Secrets:   valkeySecrets,
 		SyncWave:  9,
 	},
@@ -164,15 +178,18 @@ var All = []Component{
 	},
 	{
 		Name: "bud", Namespace: "bud",
-		Source: Source{RepoURL: budCharts, Chart: "bud", Version: "1.4.0"},
-		Values: budValues, Secrets: budSecrets,
+		Source:          Source{RepoURL: budCharts, Chart: "bud", Version: "1.4.0-next"},
+		ChartValueFiles: []string{minimalExample},
+		Values:          budValues, Secrets: budSecrets,
 		SyncWave: 12,
 	},
 	{
 		Name: "opensandbox", Namespace: "opensandbox-system",
-		Source:   Source{RepoURL: budCharts, Chart: "opensandbox", Version: "0.0.1"},
-		Secrets:  openSandboxSecrets,
-		SyncWave: 11,
+		Source:          Source{RepoURL: budCharts, Chart: "opensandbox", Version: "0.0.3"},
+		ChartValueFiles: []string{minimalExample},
+		BaseFiles:       onOpenShift(),
+		Secrets:         openSandboxSecrets,
+		SyncWave:        11,
 	},
 	{
 		Name: "bud-studio", Namespace: "bud-studio",

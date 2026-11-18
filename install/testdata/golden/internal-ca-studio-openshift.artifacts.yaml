@@ -74,7 +74,7 @@ appsets/production.yaml:
                       name: cert-manager
                       namespace: cert-manager
                       repoURL: registry.bud.studio/charts
-                      targetRevision: 0.1.3
+                      targetRevision: 0.1.4
                       valueFiles:
                         - $values/values/cert-manager/values.production.yaml
                         - $values/values/cert-manager/secrets.production.yaml
@@ -91,7 +91,7 @@ appsets/production.yaml:
                       name: clickhouse
                       namespace: clickhouse
                       repoURL: registry.bud.studio/charts
-                      targetRevision: 0.1.1
+                      targetRevision: 0.1.2
                       valueFiles:
                         - example.minimal.yaml
                         - $values/values/clickhouse/values.production.yaml
@@ -139,8 +139,9 @@ appsets/production.yaml:
                       name: bud
                       namespace: bud
                       repoURL: registry.bud.studio/charts
-                      targetRevision: 1.4.0
+                      targetRevision: 1.4.0-next
                       valueFiles:
+                        - example.minimal.yaml
                         - $values/values/bud/values.production.yaml
                         - $values/values/bud/secrets.production.yaml
                     - chart: opensandbox
@@ -148,8 +149,10 @@ appsets/production.yaml:
                       name: opensandbox
                       namespace: opensandbox-system
                       repoURL: registry.bud.studio/charts
-                      targetRevision: 0.0.1
+                      targetRevision: 0.0.3
                       valueFiles:
+                        - example.minimal.yaml
+                        - $values/values/opensandbox/values.production.yaml
                         - $values/values/opensandbox/secrets.production.yaml
                     - chart: budagent
                       gitPath: ""
@@ -1070,6 +1073,20 @@ values/opensandbox/secrets.production.yaml:
         registry.bud.studio:
             password: registry-secret
             username: robot
+values/opensandbox/values.production.yaml:
+    opensandbox:
+        opensandbox-server:
+            server:
+                podSecurityContext:
+                    sysctls:
+                        - name: net.ipv4.ip_unprivileged_port_start
+                          value: "0"
+                volumeMounts:
+                    - mountPath: /.opensandbox
+                      name: state
+                volumes:
+                    - emptyDir: {}
+                      name: state
 values/postgres/secrets.production.yaml:
     users:
         bud:
@@ -1342,3 +1359,4 @@ values/valkey/values.production.yaml:
             memory: 1Gi
     sentinel:
         enabled: false
+    targetPlatform: openshift

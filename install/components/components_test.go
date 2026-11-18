@@ -57,14 +57,17 @@ func TestEveryLayerIsUsed(t *testing.T) {
 	}
 	used := map[string]bool{}
 	for _, tls := range []spec.TLSMode{spec.TLSACMEDNS01, spec.TLSACMEHTTP01, spec.TLSSelfSigned, spec.TLSInternalCA, spec.TLSExternal} {
-		s := validSpec()
-		s.TLS = tls
-		for _, c := range All {
-			if c.BaseFiles == nil {
-				continue
-			}
-			for _, f := range c.BaseFiles(s) {
-				used["values/"+c.Name+"/"+f] = true
+		for _, openShift := range []bool{false, true} {
+			s := validSpec()
+			s.TLS = tls
+			s.IsOpenShift = openShift
+			for _, c := range All {
+				if c.BaseFiles == nil {
+					continue
+				}
+				for _, f := range c.BaseFiles(s) {
+					used["values/"+c.Name+"/"+f] = true
+				}
 			}
 		}
 	}

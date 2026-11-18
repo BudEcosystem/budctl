@@ -147,12 +147,13 @@ components:
                 url: https://github.com/example/bud-config
             sopsAgeKeys: AGE-SECRET-KEY-19LCLPSGZL57K7TDN9CPH4H734VZN3JY0EAT60SG5W2QSK68F6A8QQPTQSL
     bud:
-        chartValueFiles: []
+        chartValueFiles:
+            - example.minimal.yaml
         namespace: bud
         source:
             chart: bud
             repoURL: registry.bud.studio/charts
-            targetRevision: 1.4.0
+            targetRevision: 1.4.0-next
         values:
             appApiToken: golden-app-api
             daprExtra:
@@ -382,7 +383,7 @@ components:
         source:
             chart: cert-manager
             repoURL: registry.bud.studio/charts
-            targetRevision: 0.1.3
+            targetRevision: 0.1.4
         values:
             cert-manager:
                 affinity:
@@ -459,7 +460,7 @@ components:
         source:
             chart: clickhouse
             repoURL: registry.bud.studio/charts
-            targetRevision: 0.1.1
+            targetRevision: 0.1.2
         values:
             affinity:
                 nodeAffinity:
@@ -845,12 +846,13 @@ components:
                         - db: bud_novu
                           name: dbOwner
     opensandbox:
-        chartValueFiles: []
+        chartValueFiles:
+            - example.minimal.yaml
         namespace: opensandbox-system
         source:
             chart: opensandbox
             repoURL: registry.bud.studio/charts
-            targetRevision: 0.0.1
+            targetRevision: 0.0.3
         values:
             opensandbox:
                 opensandbox-server:
