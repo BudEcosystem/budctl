@@ -787,16 +787,16 @@ components:
                             - credentials:
                                 - temporary: false
                                   type: password
-                                  value: root@example.com
-                              email: root@example.com
+                                  value: golden-admin-password
+                              email: admin@example.com
                               emailVerified: true
                               enabled: true
-                              firstName: Root
+                              firstName: Bud
                               lastName: Admin
                               realmRoles:
                                 - super_admin
                                 - default-roles-bud-keycloak
-                              username: root
+                              username: admin@example.com
                             - clientRoles:
                                 realm-management:
                                     - manage-users

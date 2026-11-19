@@ -84,12 +84,50 @@ func seaweedSecrets(_ spec.Spec, g spec.GeneratedSecrets) map[string]any {
 	}
 }
 
+// keycloakRealm is the key of the Bud realm under the keycloak chart's
+// realms value.
+const keycloakRealm = "keycloak-bud-keycloak-realm"
+
+// keycloakServiceAccount is the realm user that maps roles onto the
+// budapp-admin client's service account, as the reference realm defines it.
+func keycloakServiceAccount() map[string]any {
+	return map[string]any{
+		"enabled":                true,
+		"username":               "service-account-budapp-admin",
+		"serviceAccountClientId": "budapp-admin",
+		"clientRoles": map[string]any{
+			"realm-management": []any{"manage-users", "view-users"},
+		},
+	}
+}
+
+// keycloakAdmin is the realm user the operator signs in to Bud with. budapp
+// pre-seeds a super admin for SUPER_USER_EMAIL and links it to the Keycloak
+// user with that email at first login, so the two must name the same address.
+func keycloakAdmin(s spec.Spec, g spec.GeneratedSecrets) map[string]any {
+	return map[string]any{
+		"enabled":       true,
+		"username":      s.AdminEmail,
+		"email":         s.AdminEmail,
+		"emailVerified": true,
+		"firstName":     "Bud",
+		"lastName":      "Admin",
+		"realmRoles":    []any{"super_admin", "default-roles-bud-keycloak"},
+		"credentials": []any{map[string]any{
+			"temporary": false, "type": "password", "value": g.AdminPassword,
+		}},
+	}
+}
+
 func keycloakSecrets(s spec.Spec, g spec.GeneratedSecrets) map[string]any {
 	return map[string]any{
 		"password":   g.Values["keycloak-admin"],
 		"postgres":   map[string]any{"password": g.Values["postgres-keycloak"]},
 		"registries": registry(s),
-		"realms": map[string]any{"keycloak-bud-keycloak-realm": map[string]any{
+		"realms": map[string]any{keycloakRealm: map[string]any{
+			// NOTE: [AGENT]: The whole list, because Helm replaces lists: it carries the
+			// administrator's password, so it cannot live in the public file.
+			"spec": map[string]any{"users": []any{keycloakAdmin(s, g), keycloakServiceAccount()}},
 			"clients": map[string]any{
 				"budadmin-web":      map[string]any{"secret": g.Values["keycloak-budadmin"]},
 				"budcustomer-web":   map[string]any{"secret": g.Values["keycloak-budcustomer"]},
@@ -299,7 +337,13 @@ func keycloakValues(s spec.Spec) map[string]any {
 	}
 	return map[string]any{
 		"ingress": map[string]any{"enabled": true, "https": true, "className": s.IngressClass, "isTraefik": s.IsTraefik, "host": "auth." + domain},
-		"realms":  map[string]any{"keycloak-bud-keycloak-realm": map[string]any{"clients": clients}},
+		"realms": map[string]any{keycloakRealm: map[string]any{
+			"clients": clients,
+			// NOTE: [AGENT]: Drops the reference realm's root@example.com user, a super
+			// admin whose password is public. The secrets file adds the
+			// operator's own administrator to this list.
+			"spec": map[string]any{"users": []any{keycloakServiceAccount()}},
+		}},
 	}
 }
 

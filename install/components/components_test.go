@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/BudEcosystem/budctl/install/spec"
+	"gopkg.in/yaml.v3"
 )
 
 func validSpec() spec.Spec {
@@ -252,5 +253,58 @@ func TestOpenShiftAddsSeaweedFSWebhookOverride(t *testing.T) {
 	webhook := seaweedValues(s)["seaweedfs-operator"].(map[string]any)["webhook"].(map[string]any)
 	if value, present := webhook["podSecurityContext"]; !present || value != nil {
 		t.Fatalf("OpenShift webhook podSecurityContext override = %#v", webhook)
+	}
+}
+
+func realmUsers(t *testing.T, values map[string]any) []any {
+	t.Helper()
+	realm := values["realms"].(map[string]any)[keycloakRealm].(map[string]any)
+	return realm["spec"].(map[string]any)["users"].([]any)
+}
+
+// The reference realm ships a super admin with a public password. The
+// operator's administrator must replace it, and only in the encrypted file.
+func TestKeycloakAdminReplacesReferenceUser(t *testing.T) {
+	s := validSpec()
+	g := spec.GeneratedSecrets{AdminPassword: "generated-admin-password", Values: map[string]string{}}
+
+	public := realmUsers(t, keycloakValues(s))
+	if len(public) != 1 || public[0].(map[string]any)["username"] != "service-account-budapp-admin" {
+		t.Fatalf("public realm users = %v, want only the budapp-admin service account", public)
+	}
+
+	secret := realmUsers(t, keycloakSecrets(s, g))
+	if len(secret) != 2 {
+		t.Fatalf("secret realm users = %d, want the administrator and the service account", len(secret))
+	}
+	admin := secret[0].(map[string]any)
+	if admin["email"] != s.AdminEmail || admin["username"] != s.AdminEmail {
+		t.Errorf("administrator = %v/%v, want %s", admin["username"], admin["email"], s.AdminEmail)
+	}
+	credential := admin["credentials"].([]any)[0].(map[string]any)
+	if credential["value"] != g.AdminPassword || credential["temporary"] != false {
+		t.Errorf("administrator credential = %v, want the generated admin password, not temporary", credential)
+	}
+	if email := budSecrets(s, g)["microservices"].(map[string]any)["global"].(map[string]any)["env"].(map[string]any)["SUPER_USER_EMAIL"]; email != admin["email"] {
+		t.Errorf("budapp super user %v and Keycloak administrator %v differ, so the login is never linked", email, admin["email"])
+	}
+}
+
+// keycloakServiceAccount restates a user of the reference realm, because
+// replacing the list drops it. This catches the reference changing under it.
+func TestKeycloakServiceAccountMatchesReference(t *testing.T) {
+	c, _ := Lookup("keycloak")
+	base, err := c.Base(validSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := realmUsers(t, base)
+	if len(users) != 2 {
+		t.Fatalf("reference realm has %d users, want root and the service account; update keycloakValues", len(users))
+	}
+	got, _ := yaml.Marshal(keycloakServiceAccount())
+	want, _ := yaml.Marshal(users[1])
+	if string(got) != string(want) {
+		t.Errorf("service account differs from the reference realm:\n got: %s\nwant: %s", got, want)
 	}
 }

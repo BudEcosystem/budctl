@@ -658,6 +658,28 @@ values/keycloak/secrets.production.yaml:
                     secret: golden-keycloak-budplayground
                 mcp-gateway:
                     secret: golden-keycloak-mcpgateway
+            spec:
+                users:
+                    - credentials:
+                        - temporary: false
+                          type: password
+                          value: golden-admin-password
+                      email: admin@example.com
+                      emailVerified: true
+                      enabled: true
+                      firstName: Bud
+                      lastName: Admin
+                      realmRoles:
+                        - super_admin
+                        - default-roles-bud-keycloak
+                      username: admin@example.com
+                    - clientRoles:
+                        realm-management:
+                            - manage-users
+                            - view-users
+                      enabled: true
+                      serviceAccountClientId: budapp-admin
+                      username: service-account-budapp-admin
     registries:
         registry.bud.studio:
             password: registry-secret
@@ -871,19 +893,6 @@ values/keycloak/values.production.yaml:
                 ssoSessionIdleTimeout: 604800
                 ssoSessionMaxLifespan: 604800
                 users:
-                    - credentials:
-                        - temporary: false
-                          type: password
-                          value: root@example.com
-                      email: root@example.com
-                      emailVerified: true
-                      enabled: true
-                      firstName: Root
-                      lastName: Admin
-                      realmRoles:
-                        - super_admin
-                        - default-roles-bud-keycloak
-                      username: root
                     - clientRoles:
                         realm-management:
                             - manage-users
